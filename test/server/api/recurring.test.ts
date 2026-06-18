@@ -146,6 +146,33 @@ describe('recurring API — POST creates template', () => {
     expect(row.id).toBeTypeOf('number')
     expect(row.remaining_installments_json).toBe(installments)
   })
+
+  it('POST ignores client-supplied next_due_date and uses server-computed value', async () => {
+    const row = await authFetch('/api/recurring', {
+      method: 'POST',
+      body: {
+        name: 'BogusDate',
+        direction: 'expense',
+        amount_cents: 5000,
+        cadence: 'monthly',
+        day_of_month: 12,
+        category: 'bills',
+        start_date: '2026-06-01',
+        next_due_date: '1999-01-01', // bogus client-supplied value must be ignored
+      },
+    })
+    expect(row.id).toBeTypeOf('number')
+    // Server must compute from day_of_month=12, NOT use the client's '1999-01-01'
+    expect(row.next_due_date).toMatch(/^\d{4}-\d{2}-12$/)
+    expect(row.next_due_date).not.toBe('1999-01-01')
+  })
+
+  it('POST returns 400 for negative amount_cents', async () => {
+    await expect(authFetch('/api/recurring', {
+      method: 'POST',
+      body: { name: 'NegAmt', direction: 'expense', amount_cents: -100, start_date: '2026-06-01' },
+    })).rejects.toMatchObject({ statusCode: 400 })
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -215,6 +242,31 @@ describe('recurring API — PATCH edits template', () => {
       body: { remaining_installments_json: newJson },
     })
     expect(updated.remaining_installments_json).toBe(newJson)
+  })
+
+  it('PATCH day_of_month: null clears next_due_date to null', async () => {
+    const created = await authFetch('/api/recurring', {
+      method: 'POST',
+      body: { name: 'ClearDOM', direction: 'expense', amount_cents: 2000, day_of_month: 8, category: 'bills', start_date: '2026-06-01' },
+    })
+    expect(created.next_due_date).not.toBeNull()
+    const updated = await authFetch(`/api/recurring/${created.id}`, {
+      method: 'PATCH',
+      body: { day_of_month: null },
+    })
+    expect(updated.day_of_month).toBeNull()
+    expect(updated.next_due_date).toBeNull()
+  })
+
+  it('PATCH returns 400 for negative amount_cents', async () => {
+    const created = await authFetch('/api/recurring', {
+      method: 'POST',
+      body: { name: 'NegPatch', direction: 'expense', amount_cents: 1000, day_of_month: 5, category: 'bills', start_date: '2026-06-01' },
+    })
+    await expect(authFetch(`/api/recurring/${created.id}`, {
+      method: 'PATCH',
+      body: { amount_cents: -50 },
+    })).rejects.toMatchObject({ statusCode: 400 })
   })
 })
 

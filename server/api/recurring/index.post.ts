@@ -18,8 +18,8 @@ export default defineEventHandler(async (event) => {
   if (!b?.direction || !VALID_DIRECTIONS.includes(b.direction)) {
     throw createError({ statusCode: 400, statusMessage: `direction must be one of: ${VALID_DIRECTIONS.join(', ')}` })
   }
-  if (typeof b.amount_cents !== 'number' || !Number.isInteger(b.amount_cents)) {
-    throw createError({ statusCode: 400, statusMessage: 'amount_cents must be an integer' })
+  if (typeof b.amount_cents !== 'number' || !Number.isInteger(b.amount_cents) || b.amount_cents < 0) {
+    throw createError({ statusCode: 400, statusMessage: 'amount_cents must be a non-negative integer' })
   }
   if (!b?.start_date || typeof b.start_date !== 'string') {
     throw createError({ statusCode: 400, statusMessage: 'start_date required' })
@@ -41,9 +41,9 @@ export default defineEventHandler(async (event) => {
   }
 
   const now = nowEpoch()
-  // Compute next_due_date from day_of_month — single source of truth.
+  // Compute next_due_date from day_of_month — single source of truth; never accept client-supplied value.
   const from = b.start_date <= todayMYT() ? todayMYT() : b.start_date
-  const next = b.next_due_date ?? (dom != null ? nextDueDate(from, dom) : null)
+  const next = dom != null ? nextDueDate(from, dom) : null
 
   const [row] = db.insert(recurringItems).values({
     name: b.name,
