@@ -157,7 +157,7 @@ export function setSessionCookie(event: H3Event, id: string, expiresAt: number):
     secure: true,
     sameSite: 'lax',
     path: '/',
-    ...(IS_PROD ? { domain: 'money.argontechs.dev' } : {}),
+    ...(IS_PROD ? { domain: 'fms.argontechs.dev' } : {}),
     expires: new Date(expiresAt),
   })
 }
@@ -171,6 +171,6 @@ export function clearSessionCookie(event: H3Event): void {
     secure: true,
     sameSite: 'lax',
     path: '/',
-    ...(IS_PROD ? { domain: 'money.argontechs.dev' } : {}),
+    ...(IS_PROD ? { domain: 'fms.argontechs.dev' } : {}),
   })
 }

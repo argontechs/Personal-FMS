@@ -1,6 +1,6 @@
 # Personal Financial Management PWA — Design Specification
 
-> Single-user financial-habit app for a Malaysian salaried professional. North star: **build a money habit and a real emergency fund.** Self-hosted PWA at `money.argontechs.dev`.
+> Single-user financial-habit app for a Malaysian salaried professional. North star: **build a money habit and a real emergency fund.** Self-hosted PWA at `fms.argontechs.dev`.
 > Status: project spec, v1.0 (2026-06-18).
 
 ---
@@ -31,7 +31,7 @@ Open the app, see one safe-to-spend number, log a coffee in two taps, get nudged
 
 ### Recommended stack
 
-A **single Nuxt 4 app** — Vue 3 SPA + service worker on the client, Nitro server routes (`server/api/`) on the server — persisting to **SQLite via Drizzle**, served by **PM2 (fork mode, 1 instance) behind CloudPanel's nginx + Let's Encrypt** at `money.argontechs.dev`. The habit scheduler runs **in-process inside the same Nitro app** (see Section 8) and sends Web Push to the installed PWA.
+A **single Nuxt 4 app** — Vue 3 SPA + service worker on the client, Nitro server routes (`server/api/`) on the server — persisting to **SQLite via Drizzle**, served by **PM2 (fork mode, 1 instance) behind CloudPanel's nginx + Let's Encrypt** at `fms.argontechs.dev`. The habit scheduler runs **in-process inside the same Nitro app** (see Section 8) and sends Web Push to the installed PWA.
 
 This is the intersection of two systems the user has already shipped to production: **PWA-PropertyAgentCRM** (Nuxt 4 + Drizzle + PWA on CloudPanel + PM2) and **eInvoicing-LHDN** (Nuxt 4 + SQLite + Drizzle). One language end-to-end (TS in Vue, Nitro, and the Drizzle schema), one repo, one deploy. Time-to-MVP is the binding constraint for a habit tool — an unfinished finance app helps nobody — so reusing a known-good path is the fastest route to value.
 
@@ -538,11 +538,11 @@ This guards an entire financial life on a public subdomain — treat it as hosti
 The drafts contradicted (WebAuthn + argon2 + server-side sessions vs. only `NUXT_SESSION_PASSWORD` sealed cookies). **Committed v1 stack:**
 
 - **argon2id password** (`@node-rs/argon2`), params pinned **in code** (memory ≥ 19 MiB, time ≥ 2) — never bcrypt, never plain.
-- **Server-side session row** in SQLite (`users`/`sessions`), opaque random id in an **httpOnly, Secure, SameSite=Lax cookie** bound to `money.argontechs.dev`, 30-day rolling. Revocable by deleting the row; a `session_epoch` field allows bulk invalidation. `NUXT_SESSION_PASSWORD` (≥32 chars; `openssl rand -hex 32` = 64 hex is fine) signs/seals the cookie — it is **not** the session mechanism by itself (the row is).
+- **Server-side session row** in SQLite (`users`/`sessions`), opaque random id in an **httpOnly, Secure, SameSite=Lax cookie** bound to `fms.argontechs.dev`, 30-day rolling. Revocable by deleting the row; a `session_epoch` field allows bulk invalidation. `NUXT_SESSION_PASSWORD` (≥32 chars; `openssl rand -hex 32` = 64 hex is fine) signs/seals the cookie — it is **not** the session mechanism by itself (the row is).
 - **`requireSession()` gates every `server/api/**` handler.** The **only** exceptions are the auth login/callback routes; **`/api/push/subscribe` is NOT an exception** — it is gated (an open subscribe endpoint lets anyone spam `push_subscriptions`).
 - **Bootstrap without self-claim race (review HIGH):** registration is **not** open-then-lock (between deploy and first registration, anyone hitting `/register` first becomes the owner). Instead, seed the single user via a **one-time CLI/migration seed**, or require a **`REGISTER_TOKEN`** (set in `.env`, printed to server logs) on the register call. Never allow self-claim over the public internet.
 - **Harden the surface:** rate-limit login (constant-time hash compare), HSTS + strict CSP via Nitro route rules.
-- **Phase 2:** add **WebAuthn passkey** (`@simplewebauthn`, `rpID='money.argontechs.dev'`, `origin='https://money.argontechs.dev'`, credential pubkey stored + the same server-side session row for revocation) as a convenience biometric login. Deferred from v1 — passkey enrollment/recovery is fiddly and produces zero habit value on day 1.
+- **Phase 2:** add **WebAuthn passkey** (`@simplewebauthn`, `rpID='fms.argontechs.dev'`, `origin='https://fms.argontechs.dev'`, credential pubkey stored + the same server-side session row for revocation) as a convenience biometric login. Deferred from v1 — passkey enrollment/recovery is fiddly and produces zero habit value on day 1.
 
 ### The cron-key internal endpoint (review HIGH)
 
@@ -637,24 +637,24 @@ The system surfaces this as the single Safe-to-Spend number (income − fixed ob
 
 Deploys the Nuxt 4 + Nitro PWA (`node-server` preset → `.output/server/index.mjs`) the same way the user runs PWA-PropertyAgentCRM. SQLite = no DB server to provision.
 
-> **Verify the site-user naming first (review LOW).** CloudPanel's convention is that the site user IS the SSH user with files under `/home/<siteUser>`. Before following anything below, check the existing PropertyCRM box: `ls /home` and `clpctl` output show the real user. **Use whatever CloudPanel actually creates uniformly** for SSH, docroot, crontab owner, and `pm2 startup -u`. Do not mix a `money-ssh` form and `money` unless confirmed distinct. Below assumes site user **`money`**, domain **`money.argontechs.dev`** — adjust to reality.
+> **Verify the site-user naming first (review LOW).** CloudPanel's convention is that the site user IS the SSH user with files under `/home/<siteUser>`. Before following anything below, check the existing PropertyCRM box: `ls /home` and `clpctl` output show the real user. **Use whatever CloudPanel actually creates uniformly** for SSH, docroot, crontab owner, and `pm2 startup -u`. Do not mix a `money-ssh` form and `money` unless confirmed distinct. Below assumes site user **`money`**, domain **`fms.argontechs.dev`** — adjust to reality.
 
 ### 0. DNS first
 
-A record `money` → VPS public IPv4 (AAAA if IPv6). Confirm `dig +short money.argontechs.dev` returns the VPS IP before issuing the cert (Let's Encrypt HTTP-01 fails otherwise).
+A record `money` → VPS public IPv4 (AAAA if IPv6). Confirm `dig +short fms.argontechs.dev` returns the VPS IP before issuing the cert (Let's Encrypt HTTP-01 fails otherwise).
 
 ### 1. Create the Node.js site
 
 ```bash
 clpctl site:add:nodejs \
-  --domainName=money.argontechs.dev \
+  --domainName=fms.argontechs.dev \
   --nodejsVersion=22 \
   --appPort=3000 \
   --siteUser=money \
   --siteUserPassword='<strong-password>'
 ```
 
-Provisions the Linux site user, docroot `/home/money/htdocs/money.argontechs.dev`, and an nginx vhost reverse-proxying all requests to `127.0.0.1:3000` (Node is never exposed directly).
+Provisions the Linux site user, docroot `/home/fms/htdocs/fms.argontechs.dev`, and an nginx vhost reverse-proxying all requests to `127.0.0.1:3000` (Node is never exposed directly).
 
 ### 2. Code onto the box
 
@@ -671,7 +671,7 @@ nitro: { preset: 'node-server', compressPublicAssets: true,
 NODE_ENV=production
 NITRO_HOST=127.0.0.1
 NITRO_PORT=3000
-DATABASE_URL=file:/home/money/data/money.sqlite     # OUTSIDE docroot
+DATABASE_URL=file:/home/fms/data/money.sqlite     # OUTSIDE docroot
 
 VAPID_PUBLIC_KEY=<from web-push>
 NUXT_PUBLIC_VAPID_PUBLIC_KEY=<same public key>      # client-exposed copy
@@ -687,16 +687,16 @@ REGISTER_TOKEN=<openssl rand -hex 16>               # one-time bootstrap (§9)
 ### 4. SQLite location + daily backup
 
 ```bash
-mkdir -p /home/money/data /home/money/backups && chmod 700 /home/money/data /home/money/backups
-cd /home/money/htdocs/money.argontechs.dev && npm run db:migrate && npm run db:seed   # one-time seed (§10)
+mkdir -p /home/fms/data /home/fms/backups && chmod 700 /home/fms/data /home/fms/backups
+cd /home/fms/htdocs/fms.argontechs.dev && npm run db:migrate && npm run db:seed   # one-time seed (§10)
 ```
 
-`/home/money/bin/backup-db.sh` — **`.backup`, never `cp`** (review HIGH):
+`/home/fms/bin/backup-db.sh` — **`.backup`, never `cp`** (review HIGH):
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-DB=/home/money/data/money.sqlite ; DEST=/home/money/backups
+DB=/home/fms/data/money.sqlite ; DEST=/home/fms/backups
 STAMP=$(date +%Y%m%d-%H%M%S) ; OUT="$DEST/money-$STAMP.sqlite"
 sqlite3 "$DB" ".backup '$OUT'"          # consistent hot snapshot (WAL-safe)
 gzip "$OUT"
@@ -704,28 +704,28 @@ find "$DEST" -name 'money-*.sqlite.gz' -mtime +14 -delete   # 14-day retention
 rclone copy "$OUT.gz" remote:money-fms-backups/ --quiet     # off-box (one-time: rclone config)
 ```
 
-Plus a **monthly restore-verify** (Section 9): restore latest gz to scratch, `PRAGMA integrity_check;` + row-count check. Cron as the site user: `15 3 * * * /home/money/bin/backup-db.sh >> /home/money/backups/backup.log 2>&1`.
+Plus a **monthly restore-verify** (Section 9): restore latest gz to scratch, `PRAGMA integrity_check;` + row-count check. Cron as the site user: `15 3 * * * /home/fms/bin/backup-db.sh >> /home/fms/backups/backup.log 2>&1`.
 
 ### 5. PM2 — ONE app (review BLOCKER)
 
 The `money-scheduler` second process is **removed** (no `.output/scheduler.mjs` artifact exists; scheduling is in-process — Section 8). One fork-mode instance (SQLite single-writer):
 
 ```javascript
-// /home/money/htdocs/money.argontechs.dev/ecosystem.config.cjs
-const cwd = '/home/money/htdocs/money.argontechs.dev'
+// /home/fms/htdocs/fms.argontechs.dev/ecosystem.config.cjs
+const cwd = '/home/fms/htdocs/fms.argontechs.dev'
 module.exports = { apps: [{
   name: 'money-fms', cwd, script: '.output/server/index.mjs',
   exec_mode: 'fork', instances: 1, env_file: '.env',
   max_memory_restart: '400M',
-  out_file: '/home/money/logs/money-fms-out.log',
-  error_file: '/home/money/logs/money-fms-error.log',
+  out_file: '/home/fms/logs/money-fms-out.log',
+  error_file: '/home/fms/logs/money-fms-error.log',
   log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
 }] }
 ```
 
 ```bash
-mkdir -p /home/money/logs
-cd /home/money/htdocs/money.argontechs.dev && npm ci && npm run build
+mkdir -p /home/fms/logs
+cd /home/fms/htdocs/fms.argontechs.dev && npm ci && npm run build
 pm2 start ecosystem.config.cjs && pm2 save
 ```
 
@@ -752,12 +752,12 @@ Post-deploy, verify the public key is actually in the client bundle and **test a
 
 CloudPanel's vhost already targets `127.0.0.1:3000`. Verify `curl -I http://127.0.0.1:3000`. Issue the cert: CloudPanel → Sites → SSL/TLS → New Let's Encrypt Certificate → Create and Install (auto HTTP→HTTPS redirect, auto-renew). HTTPS is mandatory for service workers / push. Confirm the proxy block forwards `X-Forwarded-Proto $scheme` (so Nitro knows it's behind HTTPS for secure cookies) and `Upgrade $http_upgrade`.
 
-### 8. Repeatable deploy — `/home/money/bin/deploy.sh`
+### 8. Repeatable deploy — `/home/fms/bin/deploy.sh`
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-cd /home/money/htdocs/money.argontechs.dev
+cd /home/fms/htdocs/fms.argontechs.dev
 git pull --ff-only
 npm ci
 npm run db:migrate                      # before reload — new code never hits old schema
@@ -767,9 +767,9 @@ pm2 save
 echo "Deployed money-fms @ $(git rev-parse --short HEAD)"
 ```
 
-Rollback: `git reset --hard <sha> && npm ci && npm run build && pm2 reload ecosystem.config.cjs`. SQLite is untouched (lives in `/home/money/data`).
+Rollback: `git reset --hard <sha> && npm ci && npm run build && pm2 reload ecosystem.config.cjs`. SQLite is untouched (lives in `/home/fms/data`).
 
-**Mental model:** Internet → nginx (TLS, 443) → `127.0.0.1:3000` → PM2 fork `money-fms` (app **+ in-process scheduler**) → `/home/money/data/money.sqlite`. Daily `.backup` ships a copy off-box; `loginctl enable-linger` + `pm2 save` cover reboots.
+**Mental model:** Internet → nginx (TLS, 443) → `127.0.0.1:3000` → PM2 fork `money-fms` (app **+ in-process scheduler**) → `/home/fms/data/money.sqlite`. Daily `.backup` ships a copy off-box; `loginctl enable-linger` + `pm2 save` cover reboots.
 
 ---
 
@@ -805,7 +805,7 @@ A 5-lens adversarial review verdicted **approve-with-fixes** (financial strategy
 3. **Payoff bar needs a frozen baseline (§3/§5/§6).** `1 − balance/original_principal` breaks (null → NaN; goes negative after interest accrual). Add **`goals.baseline_amount_cents`** (or `debts.payoff_baseline_cents`), snapshot = card balance at goal creation; progress = `clamp((baseline − current)/baseline, 0, 1)`.
 4. **VAPID public key is RUNTIME config, not build-time (§12.6).** Declare `runtimeConfig.public.vapidPublicKey = ''`, read via `useRuntimeConfig()` (never `import.meta.env`), set **`NUXT_PUBLIC_VAPID_PUBLIC_KEY`** in the env; `pm2 reload --update-env` picks it up. **Delete the "source .env before npm run build" step** from `deploy.sh`. Keep the end-to-end `subscribe()` smoke test.
 5. **One balance authority — the ledger (§3/§5).** Account & debt balances change **only** via `transactions` rows carrying `account_id`/`debt_id` (payments decrement, interest increments). `recurring_items.scheduled_payment` is a **template only**. Compute `debt_service` for the rollup from **ledger XOR templates, never both** — no double-count.
-6. **Session cookie hard-set in code (§12.7).** `setCookie` does NOT auto-add `Secure`, and `X-Forwarded-Proto` is spoofable from the loopback port. Set `httpOnly:true, secure:true, sameSite:'lax', domain:'money.argontechs.dev'` explicitly in code; use the proto header only for origin construction. Keep HSTS + HTTP→HTTPS redirect.
+6. **Session cookie hard-set in code (§12.7).** `setCookie` does NOT auto-add `Secure`, and `X-Forwarded-Proto` is spoofable from the loopback port. Set `httpOnly:true, secure:true, sameSite:'lax', domain:'fms.argontechs.dev'` explicitly in code; use the proto header only for origin construction. Keep HSTS + HTTP→HTTPS redirect.
 7. **Backup script: rclone before prune, named remote, alert + verify (§12.4).** Run `rclone copy` to the **named Google Drive remote BEFORE** the local `find -delete` prune (or make rclone non-fatal with an alert). Add off-box retention, an upload-size sanity check, `chmod 600` on the archive + rclone config, and a **second cron** that restore-verifies (`PRAGMA integrity_check` + row-count + latest-timestamp).
 8. **One savings-target rule across §4/§7/§8.** `SAVINGS_TARGET` is **per-cycle** (a "cycle" = gap between consecutive inflows: salary~1st–3rd, 1st, 23rd). STS subtracts `savings_target_remaining` for the *current* cycle; the payday-prompt's suggested amount = that remaining figure. **Phase-scaled:** Buffer phase ≈ RM500/mo split across inflows → EF; Attack phase routes surplus to the **card** (EF target paused at RM1,000); post-card resumes EF toward RM15,000. The hero number must never subtract a target it isn't actually steering.
 
@@ -835,3 +835,29 @@ A 5-lens adversarial review verdicted **approve-with-fixes** (financial strategy
 - **Verify the current RYT savings rate** (the ~4% stamp campaign ended 31 Mar 2026; planning rate is ~3% — does not affect the EF-vs-18%-card logic).
 - **Pin each finite template's first post-month** at seed so counts/end-dates reconcile (SLoan1 ×8, SLoan2 ×3, Ryt PayLater ×4 Jul–Oct, SPayLater first installment) — confirm the exact next-payment month with the user; the ~RM268 trough wobble doesn't change strategy.
 - Ryt Invest accounts/goals are **NOT** seeded in v1 — the EF account is the only savings destination.
+
+---
+
+## 15. Account inventory & deferred net-worth holdings (recorded 2026-06-18)
+
+The user provided a fuller account list. **v1 scope decision: track bank/e-wallet/cash only** (spendable accounts); the investment/insurance holdings below are **recorded here for a later net-worth phase, NOT seeded in v1**.
+
+### v1 spendable accounts (seeded — feed Safe-to-Spend "cash")
+| Account | Type | Opening (sen) | Note |
+|---|---|---|---|
+| Main Bank | bank | 75000 (RM750) | the earlier "my bank" balance; main operational account |
+| Cash | cash | 27200 (RM272) | physical cash |
+| UOB One | bank | 280 (RM2.80) | |
+| TnG eWallet | ewallet | 6995 (RM69.95) | (replaces the earlier RM250 proxy) |
+| Public Bank | bank | 0 | **salary lands here** — the Net Salary recurring template funds into this account |
+| Credit Card | card | −740076 | linked to card debt 740076 |
+| Emergency Fund (RYT) | savings | 0 | target 100000 starter |
+Total liquid ≈ **RM1,094.75** — already ≥ the RM1,000 starter buffer, so the first EF action is *consolidating* existing cash into the RYT pocket, not net-new saving.
+
+### Deferred net-worth holdings (NOT seeded in v1 — for the later net-worth/investment view)
+- **ASNB:** ASN Sara 1 RM26 · ASN Equity 5 RM101.24 · ASM 3 RM200 (~RM327).
+- **AIA investment-linked:** A-LifeJoy RM5,340.80 · **Assurance Account RM63,522.97** · Empower Edu Plan RM73,032.70 (~RM141,896 fund value).
+- **Great Eastern:** Critical-Illness plan fund value RM1,426.26 (protection — keep); plus the Great Wealth Enhancer ILP being paused (§11.3).
+
+### Real-money lever this unlocked (advice, not licensed)
+The **AIA Assurance Account (RM63,522.97)** may allow low/no-penalty **partial withdrawal**. If so, withdrawing ~RM7,400 to clear the 18% card outright is a guaranteed risk-free 18% return vs the fund's ~4–6% — superior to the 6-month surplus paydown *and* it ends the card problem immediately. Action: ask AIA for partial-withdrawal terms + coverage impact. The **Empower Edu** plan and A-LifeJoy stay locked (purpose/protection); do not surrender whole plans. Net position: **asset-rich-but-locked, liquid-poor** (~RM144k holdings vs ~RM120k debt = positive net worth, but the live problem is liquidity + the 18% card — the plan is unchanged).

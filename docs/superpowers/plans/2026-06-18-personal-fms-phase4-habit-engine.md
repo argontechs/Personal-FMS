@@ -1491,7 +1491,7 @@ export function renderAttentionEmail(items: { line: string }[]): { subject: stri
   const body = items.length ? items.map(i => `- ${i.line}`).join('\n') : '- Nothing urgent this week. Nice.'
   return {
     subject: 'Money — What needs your attention this week',
-    text: `What needs your attention\n\n${body}\n\nOpen: https://money.argontechs.dev/`,
+    text: `What needs your attention\n\n${body}\n\nOpen: https://fms.argontechs.dev/`,
   }
 }
 
@@ -1679,7 +1679,7 @@ export default defineTask({
 
 Run on the box:
 ```bash
-cd /home/money/htdocs/money.argontechs.dev && npm run build && pm2 reload ecosystem.config.cjs --update-env
+cd /home/fms/htdocs/fms.argontechs.dev && npm run build && pm2 reload ecosystem.config.cjs --update-env
 sleep 130 && pm2 logs money-fms --lines 200 --nostream | grep smoke-heartbeat
 ```
 Expected: at least two `[smoke-heartbeat] croner alive` lines ~60s apart. If ZERO lines → croner did not start under the preset; the OS-cron watchdog (Task 4.10) becomes the primary trigger — proceed to Step 5 regardless.
@@ -1688,8 +1688,8 @@ Expected: at least two `[smoke-heartbeat] croner alive` lines ~60s apart. If ZER
 
 Run:
 ```bash
-curl -s https://money.argontechs.dev/_nuxt/builds/latest.json >/dev/null
-node -e "const c=require('/home/money/htdocs/money.argontechs.dev/.output/server/chunks/runtime.mjs');" 2>/dev/null || true
+curl -s https://fms.argontechs.dev/_nuxt/builds/latest.json >/dev/null
+node -e "const c=require('/home/fms/htdocs/fms.argontechs.dev/.output/server/chunks/runtime.mjs');" 2>/dev/null || true
 pm2 env 0 | grep NUXT_PUBLIC_VAPID_PUBLIC_KEY
 ```
 Expected: `NUXT_PUBLIC_VAPID_PUBLIC_KEY` is set in the PM2 process env (runtime, not baked at build). If empty → set it in `.env`, `pm2 reload --update-env`.
@@ -1698,7 +1698,7 @@ Expected: `NUXT_PUBLIC_VAPID_PUBLIC_KEY` is set in the PM2 process env (runtime,
 
 On the iPhone, installed to Home Screen (standalone): tap "Turn on reminders" → grant → confirm the "Reminders are working" canary notification arrives. Then on the box:
 ```bash
-sqlite3 /home/money/data/money.sqlite "SELECT id, substr(endpoint,1,40), failed_at FROM push_subscriptions;"
+sqlite3 /home/fms/data/money.sqlite "SELECT id, substr(endpoint,1,40), failed_at FROM push_subscriptions;"
 ```
 Expected: one row, `failed_at` NULL. A missing client key fails silently with no server error — this is the test that catches it.
 
@@ -1707,14 +1707,14 @@ Expected: one row, `failed_at` NULL. A missing client key fails silently with no
 As the site user `money`:
 ```bash
 ( crontab -l 2>/dev/null; \
-  echo '*/5 * * * * curl -fsS -X POST -H "x-run-due-secret: '"$NUXT_RUN_DUE_SECRET"'" http://127.0.0.1:3000/api/internal/run-due >> /home/money/logs/run-due.log 2>&1' \
+  echo '*/5 * * * * curl -fsS -X POST -H "x-run-due-secret: '"$NUXT_RUN_DUE_SECRET"'" http://127.0.0.1:3000/api/internal/run-due >> /home/fms/logs/run-due.log 2>&1' \
 ) | crontab -
 crontab -l | grep run-due
 ```
 Then verify it dispatches and that external access is denied:
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "x-run-due-secret: $NUXT_RUN_DUE_SECRET" http://127.0.0.1:3000/api/internal/run-due   # expect 200
-curl -s -o /dev/null -w "%{http_code}\n" -X POST https://money.argontechs.dev/api/internal/run-due                                       # expect 403 (nginx deny)
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://fms.argontechs.dev/api/internal/run-due                                       # expect 403 (nginx deny)
 ```
 Expected: loopback call `200`; public call `403`.
 

@@ -5,7 +5,7 @@
 
 **Goal:** App boots; DB migrates (WAL + foreign_keys=ON); the 9 tables exist; the seed script loads the real 2026-06-18 data; argon2id login works; `requireSession()` guards a protected route; a CLI script bootstraps the single user.
 
-**Architecture:** A single Nuxt 4 app with a Nitro `node-server` backend persisting to SQLite via `better-sqlite3` + Drizzle. Money is integer **sen**; timestamps are UTC epoch ms; business dates are MYT `YYYY-MM-DD` strings. The ledger (`transactions` rows carrying `account_id`/`debt_id`) is the single balance authority. Auth is an argon2id password plus an opaque server-side session row in SQLite, sealed in an httpOnly+secure+sameSite=lax cookie scoped to `money.argontechs.dev`.
+**Architecture:** A single Nuxt 4 app with a Nitro `node-server` backend persisting to SQLite via `better-sqlite3` + Drizzle. Money is integer **sen**; timestamps are UTC epoch ms; business dates are MYT `YYYY-MM-DD` strings. The ledger (`transactions` rows carrying `account_id`/`debt_id`) is the single balance authority. Auth is an argon2id password plus an opaque server-side session row in SQLite, sealed in an httpOnly+secure+sameSite=lax cookie scoped to `fms.argontechs.dev`.
 
 **Tech Stack:** Nuxt 4 + Nitro (preset `node-server`) · Vue 3 SPA · better-sqlite3 + Drizzle ORM · drizzle-kit · @vite-pwa/nuxt (injectManifest) · web-push (VAPID) · @node-rs/argon2 · croner (in-process Nitro `scheduledTasks`) · PM2 fork on CloudPanel · vitest (+ @nuxt/test-utils for Nitro handlers). TypeScript everywhere.
 
@@ -188,7 +188,7 @@ NODE_ENV=production
 TZ=Asia/Kuala_Lumpur
 NITRO_HOST=127.0.0.1
 NITRO_PORT=3000
-DATABASE_URL=file:/home/money/data/money.sqlite
+DATABASE_URL=file:/home/fms/data/money.sqlite
 
 VAPID_PUBLIC_KEY=
 NUXT_PUBLIC_VAPID_PUBLIC_KEY=
@@ -201,7 +201,7 @@ INTERNAL_CRON_SECRET=
 
 ```cjs
 // ecosystem.config.cjs — ONE app only (no money-scheduler; scheduling is in-process)
-const cwd = '/home/money/htdocs/money.argontechs.dev'
+const cwd = '/home/fms/htdocs/fms.argontechs.dev'
 module.exports = {
   apps: [{
     name: 'money-fms',
@@ -212,8 +212,8 @@ module.exports = {
     env_file: '.env',
     env: { TZ: 'Asia/Kuala_Lumpur' },
     max_memory_restart: '400M',
-    out_file: '/home/money/logs/money-fms-out.log',
-    error_file: '/home/money/logs/money-fms-error.log',
+    out_file: '/home/fms/logs/money-fms-out.log',
+    error_file: '/home/fms/logs/money-fms-error.log',
     log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
   }],
 }
@@ -1750,7 +1750,7 @@ git commit -m "feat(auth): CLI bootstrapUser — seeds single user, refuses a se
 
 **Interfaces:**
 - Consumes: `db`/`sqlite` (1.5), `verifyPassword` (1.8), `createSession`/`revokeSession`/`SESSION_COOKIE`/`SESSION_TTL_MS` (1.9), `precheckLogin`/`recordFailure`/`recordSuccess`/`ensureBackoffTable` (1.10), `schema.users`.
-- Produces: `POST /api/auth/login` (body `{ username, password }`) — pre-check → verify → set the session cookie hard-coded `httpOnly, secure, sameSite:'lax', domain:'money.argontechs.dev'` → `{ ok: true }`; 429 when backed off, 401 on bad creds. `POST /api/auth/logout` — revoke + clear cookie. Both are `requireSession` EXEMPT (login is the entry point; logout self-clears).
+- Produces: `POST /api/auth/login` (body `{ username, password }`) — pre-check → verify → set the session cookie hard-coded `httpOnly, secure, sameSite:'lax', domain:'fms.argontechs.dev'` → `{ ok: true }`; 429 when backed off, 401 on bad creds. `POST /api/auth/logout` — revoke + clear cookie. Both are `requireSession` EXEMPT (login is the entry point; logout self-clears).
 
 - [ ] **Step 1: Write the failing handler test (logic-level, exercising the verify/backoff path)**
 
@@ -1858,7 +1858,7 @@ export default defineEventHandler(async (event) => {
   // Cookie flags hard-set in code (§14.6): Secure NOT auto-added; proto header is spoofable.
   setCookie(event, SESSION_COOKIE, id, {
     httpOnly: true, secure: true, sameSite: 'lax',
-    domain: 'money.argontechs.dev', path: '/',
+    domain: 'fms.argontechs.dev', path: '/',
     maxAge: Math.floor(SESSION_TTL_MS / 1000), expires: new Date(expiresAt),
   })
   return { ok: true }
@@ -1874,7 +1874,7 @@ export default defineEventHandler((event) => {
   const id = getCookie(event, SESSION_COOKIE)
   if (id) revokeSession(db, id)
   deleteCookie(event, SESSION_COOKIE, {
-    httpOnly: true, secure: true, sameSite: 'lax', domain: 'money.argontechs.dev', path: '/',
+    httpOnly: true, secure: true, sameSite: 'lax', domain: 'fms.argontechs.dev', path: '/',
   })
   return { ok: true }
 })
@@ -1979,14 +1979,14 @@ Expected: FAIL — `/api/accounts` route does not exist yet (or 404), so the see
 
 - [ ] **Step 4: Make the cookie domain test-safe and confirm the route**
 
-The hard-coded `domain:'money.argontechs.dev'` makes the browser drop the cookie on `localhost` in the e2e harness. Guard it on `NODE_ENV` so tests can read the cookie while production stays locked to the real domain. Edit `server/api/auth/login.post.ts`:
+The hard-coded `domain:'fms.argontechs.dev'` makes the browser drop the cookie on `localhost` in the e2e harness. Guard it on `NODE_ENV` so tests can read the cookie while production stays locked to the real domain. Edit `server/api/auth/login.post.ts`:
 
 ```ts
 setCookie(event, SESSION_COOKIE, id, {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'lax',
-  ...(process.env.NODE_ENV === 'production' ? { domain: 'money.argontechs.dev' } : {}),
+  ...(process.env.NODE_ENV === 'production' ? { domain: 'fms.argontechs.dev' } : {}),
   path: '/',
   maxAge: Math.floor(SESSION_TTL_MS / 1000), expires: new Date(expiresAt),
 })
@@ -1999,7 +1999,7 @@ deleteCookie(event, SESSION_COOKIE, {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'lax',
-  ...(process.env.NODE_ENV === 'production' ? { domain: 'money.argontechs.dev' } : {}),
+  ...(process.env.NODE_ENV === 'production' ? { domain: 'fms.argontechs.dev' } : {}),
   path: '/',
 })
 ```

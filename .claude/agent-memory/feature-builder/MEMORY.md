@@ -1,0 +1,1 @@
+- [Personal-FMS project conventions](project_personal_fms.md) — stack, test patterns, db conventions, Nitro task patterns
