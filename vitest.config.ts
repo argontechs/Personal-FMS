@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config'
+import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   test: {
@@ -23,6 +24,7 @@ export default defineConfig({
       },
       {
         // happy-dom environment for client composables that use browser APIs (IndexedDB, etc.)
+        plugins: [vue()],
         test: {
           name: 'happy-dom',
           environment: 'happy-dom',
