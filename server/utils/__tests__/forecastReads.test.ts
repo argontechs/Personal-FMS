@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
+import { eq } from 'drizzle-orm'
 import { accounts, recurringItems, transactions } from '../../db/schema'
 import {
   cashNowCents,
@@ -141,37 +142,70 @@ describe('spentTodayVariableCents', () => {
 
 describe('savingsTargetRemainingCents', () => {
   // SAVINGS_TARGET_PER_CYCLE = 16667 sen (RM166.67 per cycle)
+  //
+  // Real EF transfer is a single-row two-leg entry (A3 convention):
+  //   account_id = bank, counter_account_id = EF, amount_cents = -X, category = 'savings'
+  // postTransaction then:
+  //   bank.balance += -X  (bank loses X)
+  //   EF.balance   -= -X  (EF gains X, via counter-leg: balance - amount_cents)
+  //
+  // savingsTargetRemainingCents resolves the EF account (type='savings') then sums:
+  //   primary  = SUM(amount_cents WHERE account_id = efId AND date ∈ window)
+  //   counter  = SUM(-amount_cents WHERE counter_account_id = efId AND date ∈ window)
+  //   moved    = primary + counter
+
+  // Helper: seed a bank account (id auto) and the EF savings account, return their ids.
+  function seedAccounts() {
+    db.insert(accounts).values([
+      { name: 'Bank', type: 'bank', balance_cents: 200000, created_at: 1, updated_at: 1 },
+      { name: 'Emergency Fund', type: 'savings', balance_cents: 0, created_at: 1, updated_at: 1 },
+    ]).run()
+    const bankRow = db.select({ id: accounts.id }).from(accounts).where(eq(accounts.type, 'bank')).get()!
+    const efRow   = db.select({ id: accounts.id }).from(accounts).where(eq(accounts.type, 'savings')).get()!
+    return { bankId: bankRow.id, efId: efRow.id }
+  }
 
   it('is the per-cycle target minus EF transfers already made, clamped at 0', () => {
+    const { bankId, efId } = seedAccounts()
+    // Real two-leg EF transfer: bank→EF, amount_cents=-5000 (bank loses 5000, EF gains 5000)
     db.insert(transactions).values([
-      // EF inbound leg: category='savings', positive amount_cents, within cycle
-      { uuid: 'ef1', date: '2026-06-18', amount_cents: 5000, direction: 'transfer', category: 'savings',
-        account_id: 5, source: 'manual', created_at: 1 },
+      { uuid: 'ef1', date: '2026-06-18', amount_cents: -5000, direction: 'transfer', category: 'savings',
+        account_id: bankId, counter_account_id: efId, source: 'manual', created_at: 1 },
     ]).run()
-    // target 16667 − 5000 already moved this cycle = 11667
+    // counter leg: SUM(-amount_cents WHERE counter_account_id=efId) = -(-5000) = 5000
+    // target 16667 − 5000 = 11667
     expect(savingsTargetRemainingCents(db, '2026-06-03', '2026-06-23')).toBe(11667)
   })
 
   it('clamps to 0 when the cycle target is already met or exceeded', () => {
+    const { bankId, efId } = seedAccounts()
+    // Transfer 20000 > 16667 — remaining clamps to 0
     db.insert(transactions).values([
-      { uuid: 'ef2', date: '2026-06-18', amount_cents: 20000, direction: 'transfer', category: 'savings',
-        account_id: 5, source: 'manual', created_at: 1 },
+      { uuid: 'ef2', date: '2026-06-18', amount_cents: -20000, direction: 'transfer', category: 'savings',
+        account_id: bankId, counter_account_id: efId, source: 'manual', created_at: 1 },
     ]).run()
-    // 20000 > 16667, so remaining = max(0, 16667 - 20000) = 0
+    // counter leg: -(-20000) = 20000 > 16667 → max(0, 16667-20000) = 0
     expect(savingsTargetRemainingCents(db, '2026-06-03', '2026-06-23')).toBe(0)
   })
 
-  it('excludes EF transfers outside the cycle window', () => {
+  it('excludes EF transfers with date outside the cycle window (before cycleStart)', () => {
+    const { bankId, efId } = seedAccounts()
+    // Date 2026-06-02 is before cycleStart 2026-06-03 — must NOT be counted
     db.insert(transactions).values([
-      // Before cycleStart — excluded
-      { uuid: 'ef3', date: '2026-06-02', amount_cents: 5000, direction: 'transfer', category: 'savings',
-        account_id: 5, source: 'manual', created_at: 1 },
+      { uuid: 'ef3', date: '2026-06-02', amount_cents: -5000, direction: 'transfer', category: 'savings',
+        account_id: bankId, counter_account_id: efId, source: 'manual', created_at: 1 },
     ]).run()
     // Nothing in window → full target remains
     expect(savingsTargetRemainingCents(db, '2026-06-03', '2026-06-23')).toBe(16667)
   })
 
   it('returns full target when no savings transfers have been made this cycle', () => {
+    seedAccounts()
+    expect(savingsTargetRemainingCents(db, '2026-06-03', '2026-06-23')).toBe(16667)
+  })
+
+  it('returns full target when no EF (savings) account exists', () => {
+    // No accounts seeded at all
     expect(savingsTargetRemainingCents(db, '2026-06-03', '2026-06-23')).toBe(16667)
   })
 })

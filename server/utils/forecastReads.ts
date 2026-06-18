@@ -88,33 +88,59 @@ export function spentTodayVariableCents(db: DB, todayISO: string): number {
  * Remaining savings obligation for the current cycle.
  * = SAVINGS_TARGET_PER_CYCLE (16667 sen) − EF transfers already made this cycle, clamped ≥ 0.
  *
- * "EF inbound leg" = transactions where:
- *   - category = 'savings'
- *   - amount_cents > 0  (positive leg = money arriving at the EF account)
- *   - date >= cycleStartISO AND date < nextInflowISO
+ * EF inbound balance-change formula (mirrors recomputeBalances non-card logic):
+ *   movedToEFThisCycle =
+ *     SUM(amount_cents WHERE account_id = efId AND date ∈ [cycleStart, nextInflow))
+ *   + SUM(-amount_cents WHERE counter_account_id = efId AND date ∈ [cycleStart, nextInflow))
  *
- * Using the positive amount_cents leg (the credit to the EF account) rather than
- * counter_account_id because the in-memory DDL in tests does not have the EF account
- * pre-seeded with a known ID. In production the debit leg from the source account
- * will have a negative amount_cents; only the credit leg (positive) is counted here.
+ * For the canonical bank→EF transfer (account_id=bank, counter_account_id=ef, amount_cents=-X):
+ *   counter leg contributes -(-X) = +X → correctly counts X moved to EF.
+ *
+ * The EF account is the unique account with type='savings'. If none exists, remaining = full target.
  */
 export function savingsTargetRemainingCents(
   db: DB,
   cycleStartISO: string,
   nextInflowISO: string,
 ): number {
-  const row = db
-    .select({ moved: sql<number>`COALESCE(SUM(${transactions.amount_cents}), 0)` })
+  // Resolve the EF account (type = 'savings').
+  const efAcct = db
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(eq(accounts.type, 'savings'))
+    .get()
+
+  if (!efAcct) return SAVINGS_TARGET_PER_CYCLE
+
+  const efId = efAcct.id
+
+  // Primary leg: rows where the EF is the source account (e.g. direct deposit to EF).
+  const primary = db
+    .select({ total: sql<number>`COALESCE(SUM(${transactions.amount_cents}), 0)` })
     .from(transactions)
     .where(
       and(
-        eq(transactions.category, 'savings'),
-        gt(transactions.amount_cents, 0),
+        eq(transactions.account_id, efId),
         sql`${transactions.date} >= ${cycleStartISO}`,
         lt(transactions.date, nextInflowISO),
       ),
     )
     .get()
-  const moved = Number(row?.moved ?? 0)
+
+  // Counter leg: rows where the EF is the receiving account (canonical bank→EF transfer).
+  // EF receives -amount_cents per the postTransaction counter-account convention.
+  const counter = db
+    .select({ total: sql<number>`COALESCE(SUM(-${transactions.amount_cents}), 0)` })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.counter_account_id, efId),
+        sql`${transactions.date} >= ${cycleStartISO}`,
+        lt(transactions.date, nextInflowISO),
+      ),
+    )
+    .get()
+
+  const moved = Number(primary?.total ?? 0) + Number(counter?.total ?? 0)
   return Math.max(0, SAVINGS_TARGET_PER_CYCLE - moved)
 }
