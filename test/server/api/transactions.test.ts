@@ -261,3 +261,54 @@ describe('transactions API — DELETE removes + recomputes', () => {
       .rejects.toMatchObject({ statusCode: 404 })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Input validation: PATCH date + GET month
+// ---------------------------------------------------------------------------
+
+describe('transactions API — PATCH date validation', () => {
+  it('PATCH with a malformed date returns 400', async () => {
+    // Create a transaction to patch.
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'val-date-1', date: '2026-06-18', amount_cents: -100, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' },
+    })
+    // Various bad date formats should be rejected.
+    for (const bad of ['2026/06/18', '26-06-18', '2026-6-18', '2026-06-1', 'not-a-date', '2026-06']) {
+      await expect(authFetch(`/api/transactions/${id}`, { method: 'PATCH', body: { date: bad } }))
+        .rejects.toMatchObject({ statusCode: 400 })
+    }
+  })
+
+  it('PATCH with a valid YYYY-MM-DD date succeeds', async () => {
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'val-date-2', date: '2026-06-18', amount_cents: -200, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' },
+    })
+    const updated = await authFetch(`/api/transactions/${id}`, {
+      method: 'PATCH',
+      body: { date: '2026-07-01' },
+    })
+    expect(updated.date).toBe('2026-07-01')
+  })
+})
+
+describe('transactions API — GET month validation', () => {
+  it('GET ?month= with a malformed value returns 400', async () => {
+    for (const bad of ['2026', '2026-6', '26-06', '2026/06', '%', '2026-06-18']) {
+      await expect(authFetch(`/api/transactions?month=${encodeURIComponent(bad)}`))
+        .rejects.toMatchObject({ statusCode: 400 })
+    }
+  })
+
+  it('GET ?month= with a wildcard-injection attempt returns 400 (not a SQL wildcard result)', async () => {
+    // Passing '%' must not become a LIKE wildcard — it must return 400.
+    await expect(authFetch('/api/transactions?month=%25'))
+      .rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('GET ?month=YYYY-MM succeeds', async () => {
+    const rows = await authFetch('/api/transactions?month=2026-06')
+    expect(Array.isArray(rows)).toBe(true)
+  })
+})

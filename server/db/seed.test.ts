@@ -5,6 +5,7 @@ import { createDb } from './index'
 import { runMigrations } from './migrate'
 import { seedDatabase } from './seed'
 import { accounts, debts, recurringItems, goals } from './schema'
+import { recomputeBalances } from '../utils/post'
 
 describe('seedDatabase — real 2026-06-18 data', () => {
   let handle: ReturnType<typeof createDb>
@@ -25,6 +26,9 @@ describe('seedDatabase — real 2026-06-18 data', () => {
     expect(card.available_credit_cents).toBeNull()
     // confirmed real statement limit (avail 58664 + balance 740076 = 798740)
     expect(card.credit_limit_cents).toBe(798740)
+    // Card account balance is stored as NEGATIVE (outstanding debt)
+    // Opening-balance ledger row posts amount_cents=740076, so recomputed card.balance = -740076
+    expect(card.balance_cents).toBe(-740076)
   })
 
   it('seeds the card debt with payoff_baseline frozen to the opening balance', () => {
@@ -112,5 +116,62 @@ describe('seedDatabase — real 2026-06-18 data', () => {
     expect(handle.db.select().from(debts).all()).toHaveLength(7)
     expect(handle.db.select().from(recurringItems).all()).toHaveLength(17)
     expect(handle.db.select().from(goals).all()).toHaveLength(2)
+  })
+
+  // ---------------------------------------------------------------------------
+  // Parity test: recomputeBalances() must reproduce the exact opening values.
+  // This proves the wipeout bug is gone — a PATCH/DELETE that calls
+  // recomputeBalances() will not silently zero out the seeded balances.
+  // ---------------------------------------------------------------------------
+  it('recomputeBalances() after seed reproduces all opening balances (parity proof)', () => {
+    // Corrupt every balance to 0, then rebuild from ledger.
+    // If the opening-balance rows were posted correctly, recompute must restore them.
+    handle.db.update(accounts).set({ balance_cents: 0 }).run()
+    handle.db.update(debts).set({ balance_cents: 0 }).run()
+
+    recomputeBalances(handle.db)
+
+    const accs = handle.db.select().from(accounts).all()
+    const dbs = handle.db.select().from(debts).all()
+
+    // --- Accounts ---
+    const bank = accs.find((a) => a.name === 'Bank Current')!
+    expect(bank.balance_cents).toBe(75000) // RM750.00
+
+    const tng = accs.find((a) => a.name === 'TNG eWallet')!
+    expect(tng.balance_cents).toBe(25000) // RM250.00
+
+    const ef = accs.find((a) => a.type === 'savings')!
+    expect(ef.balance_cents).toBe(0) // EF opens at RM0
+
+    // Card account: stored as negative (outstanding debt)
+    const card = accs.find((a) => a.type === 'card')!
+    expect(card.balance_cents).toBe(-740076) // -RM7,400.76
+
+    // --- Debts ---
+    const cardDebt = dbs.find((d) => d.type === 'revolving')!
+    expect(cardDebt.balance_cents).toBe(740076)
+
+    const carDebt = dbs.find((d) => d.name === 'Car Loan')!
+    expect(carDebt.balance_cents).toBe(7348467)
+
+    const ptptn = dbs.find((d) => d.name === 'PTPTN')!
+    expect(ptptn.balance_cents).toBe(3284362)
+
+    const sl1 = dbs.find((d) => d.name === 'SLoan 1')!
+    expect(sl1.balance_cents).toBe(141944)
+
+    const sl2 = dbs.find((d) => d.name === 'SLoan 2')!
+    expect(sl2.balance_cents).toBe(27249)
+
+    const sp = dbs.find((d) => d.name === 'ShopeePayLater')!
+    expect(sp.balance_cents).toBe(435585)
+
+    const ryt = dbs.find((d) => d.name === 'Ryt PayLater')!
+    expect(ryt.balance_cents).toBe(85660)
+
+    // Card account and card debt are mutually consistent:
+    // card.balance = -(card debt balance)
+    expect(card.balance_cents).toBe(-cardDebt.balance_cents)
   })
 })

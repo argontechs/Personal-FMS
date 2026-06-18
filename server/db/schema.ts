@@ -91,7 +91,8 @@ export const transactions = sqliteTable('transactions', {
   category: text('category', {
     enum: ['food', 'transport', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'],
   }).notNull(),
-  account_id: integer('account_id').notNull().references(() => accounts.id),
+  // Nullable: debt-only opening-balance rows omit the account leg (account_id = null).
+  account_id: integer('account_id').references(() => accounts.id),
   counter_account_id: integer('counter_account_id').references(() => accounts.id),
   debt_id: integer('debt_id').references(() => debts.id),
   goal_id: integer('goal_id').references(() => goals.id),

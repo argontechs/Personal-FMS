@@ -5,6 +5,7 @@ import { createDb } from './index'
 import { runMigrations } from './migrate'
 import { accounts, debts, recurringItems, goals } from './schema'
 import { nowEpoch, nextDueDate } from '../utils/mytDate'
+import { postTransaction } from '../utils/post'
 
 const SEED_TODAY = '2026-06-18'
 
@@ -19,11 +20,13 @@ export function seedDatabase(db: Db): void {
 
   // -------------------------------------------------------------------------
   // Accounts (4): bank, card, TNG ewallet, EF savings
+  // All accounts start at balance_cents = 0; opening balances are posted below
+  // via postTransaction so that recomputeBalances() is non-destructive.
   // -------------------------------------------------------------------------
   const bankId = db.insert(accounts).values({
     name: 'Bank Current',
     type: 'bank',
-    balance_cents: 75000, // RM750.00
+    balance_cents: 0,
     sort_order: 0,
     ...base,
   }).returning({ id: accounts.id }).get().id
@@ -31,42 +34,47 @@ export function seedDatabase(db: Db): void {
   const cardAcctId = db.insert(accounts).values({
     name: 'Credit Card',
     type: 'card',
-    balance_cents: 740076, // RM7,400.76 (outstanding, used balance)
+    // Card account balance is stored as NEGATIVE (outstanding debt).
+    // Convention: card.balance = -(SUM primary ledger rows).
+    // Opening row below posts amount_cents=740076 so recomputeBalances → -740076.
+    balance_cents: 0,
     // Real limit: avail 58664 + balance 740076 = 798740 sen
     credit_limit_cents: 798740,
-    // available_credit_cents is DERIVED at read time (limit − balance); never seeded
+    // available_credit_cents is DERIVED at read time (limit − |balance|); never seeded
     available_credit_cents: null,
     sort_order: 1,
     ...base,
   }).returning({ id: accounts.id }).get().id
 
-  db.insert(accounts).values({
+  const tngId = db.insert(accounts).values({
     name: 'TNG eWallet',
     type: 'ewallet',
-    balance_cents: 25000, // RM250.00
+    balance_cents: 0,
     sort_order: 2,
     ...base,
-  }).run()
+  }).returning({ id: accounts.id }).get().id
 
   const efId = db.insert(accounts).values({
     name: 'Emergency Fund (RYT)',
     type: 'savings',
-    balance_cents: 0, // Opens at RM0 — ledger entries fund it later
+    balance_cents: 0, // Opens at RM0 — ledger entries fund it later (no opening row needed)
     sort_order: 3,
     ...base,
   }).returning({ id: accounts.id }).get().id
 
   // -------------------------------------------------------------------------
   // Debts (7): card, car, PTPTN, SLoan1, SLoan2, ShopeePayLater, Ryt PayLater
+  // All debts start at balance_cents = 0; opening balances are posted below
+  // via postTransaction so that recomputeBalances() is non-destructive.
   // -------------------------------------------------------------------------
 
   // 1. Credit Card (revolving) — priority 1, payoff baseline frozen to opening balance
   const cardDebtId = db.insert(debts).values({
     name: 'Credit Card',
     type: 'revolving',
-    balance_cents: 740076,
+    balance_cents: 0,
     original_principal_cents: 740076,
-    payoff_baseline_cents: 740076, // frozen at goal creation (§14.3); matches card balance
+    payoff_baseline_cents: 740076, // frozen at goal creation (§14.3); matches opening balance
     rate_type: 'apr',
     apr_bps: 1800, // 18% p.a.
     min_payment_cents: 37004, // max(5% of 740076, RM50) = 37004
@@ -84,7 +92,7 @@ export function seedDatabase(db: Db): void {
   const carDebtId = db.insert(debts).values({
     name: 'Car Loan',
     type: 'flat_loan',
-    balance_cents: 7348467, // RM73,484.67
+    balance_cents: 0,
     rate_type: 'flat',
     flat_rate_bps: 244, // 2.44% flat
     scheduled_payment_cents: 90400, // RM904.00/mo
@@ -97,7 +105,7 @@ export function seedDatabase(db: Db): void {
   const ptptnDebtId = db.insert(debts).values({
     name: 'PTPTN',
     type: 'reducing_loan',
-    balance_cents: 3284362, // RM32,843.62
+    balance_cents: 0,
     rate_type: 'apr',
     apr_bps: 100, // 1% p.a.
     scheduled_payment_cents: 27000, // RM270.00/mo
@@ -110,7 +118,7 @@ export function seedDatabase(db: Db): void {
   const sloan1DebtId = db.insert(debts).values({
     name: 'SLoan 1',
     type: 'installment',
-    balance_cents: 141944, // 17743 × 8
+    balance_cents: 0,
     rate_type: 'none',
     scheduled_payment_cents: 17743,
     due_day: 12,
@@ -122,7 +130,7 @@ export function seedDatabase(db: Db): void {
   const sloan2DebtId = db.insert(debts).values({
     name: 'SLoan 2',
     type: 'installment',
-    balance_cents: 27249, // 9083 × 3
+    balance_cents: 0,
     rate_type: 'none',
     scheduled_payment_cents: 9083,
     due_day: 7,
@@ -134,8 +142,7 @@ export function seedDatabase(db: Db): void {
   const spDebtId = db.insert(debts).values({
     name: 'ShopeePayLater',
     type: 'installment',
-    // Sum of all remaining installments: 151950+83682+63165+57307+35528+14651+14651+14651 = 435585
-    balance_cents: 435585,
+    balance_cents: 0,
     rate_type: 'none',
     due_day: 10,
     remaining_installments_json: JSON.stringify(
@@ -148,13 +155,51 @@ export function seedDatabase(db: Db): void {
   const rytDebtId = db.insert(debts).values({
     name: 'Ryt PayLater',
     type: 'installment',
-    balance_cents: 85660, // 21415 × 4
+    balance_cents: 0,
     rate_type: 'none',
     scheduled_payment_cents: 21415,
     due_day: 22,
     payments_total: 4,
     ...base,
   }).returning({ id: debts.id }).get().id
+
+  // -------------------------------------------------------------------------
+  // Opening-balance ledger rows
+  // Posted via postTransaction(input, db) so that recomputeBalances() derives
+  // the correct balances from the ledger and a subsequent PATCH/DELETE never
+  // wipes real balances.
+  //
+  // Card account convention: balance is stored as NEGATIVE outstanding debt.
+  //   recomputeBalances: card.balance = -(SUM primary amount_cents)
+  //   → posting amount_cents=740076 gives recomputed card balance = -740076 ✓
+  //   The same row also sets card debt balance: debt.balance += 740076 ✓
+  //
+  // Debt-only rows (debts with no linked cash account): account_id = null.
+  //   recomputeBalances skips the account leg for NULL account_id rows.
+  // -------------------------------------------------------------------------
+
+  // --- Account opening balances ---
+  // Bank: non-card → bank.balance += 75000 = 75000 ✓
+  postTransaction({ uuid: 'ob-bank', date: SEED_TODAY, amount_cents: 75000, direction: 'income', category: 'adjustment', account_id: bankId, source: 'adjustment', note: 'Opening balance' }, db)
+
+  // TNG eWallet: non-card → tng.balance += 25000 = 25000 ✓
+  postTransaction({ uuid: 'ob-tng', date: SEED_TODAY, amount_cents: 25000, direction: 'income', category: 'adjustment', account_id: tngId, source: 'adjustment', note: 'Opening balance' }, db)
+
+  // EF: opens at 0 — no row needed (ledger entries fund it later)
+
+  // --- Card account + debt opening balance (single row covers both) ---
+  // Card account (type='card'): post.ts applies acctDelta = -amount_cents
+  //   → card.balance += -740076 = -740076 ✓
+  // Card debt: debt.balance += 740076 = 740076 ✓
+  postTransaction({ uuid: 'ob-card', date: SEED_TODAY, amount_cents: 740076, direction: 'expense', category: 'adjustment', account_id: cardAcctId, debt_id: cardDebtId, source: 'adjustment', note: 'Opening balance' }, db)
+
+  // --- Debt-only opening balances (account_id = null, no cash-account leg) ---
+  postTransaction({ uuid: 'ob-car',   date: SEED_TODAY, amount_cents: 7348467, direction: 'expense', category: 'adjustment', account_id: null, debt_id: carDebtId,    source: 'adjustment', note: 'Opening balance' }, db)
+  postTransaction({ uuid: 'ob-ptptn', date: SEED_TODAY, amount_cents: 3284362, direction: 'expense', category: 'adjustment', account_id: null, debt_id: ptptnDebtId,  source: 'adjustment', note: 'Opening balance' }, db)
+  postTransaction({ uuid: 'ob-sl1',   date: SEED_TODAY, amount_cents: 141944,  direction: 'expense', category: 'adjustment', account_id: null, debt_id: sloan1DebtId, source: 'adjustment', note: 'Opening balance' }, db)
+  postTransaction({ uuid: 'ob-sl2',   date: SEED_TODAY, amount_cents: 27249,   direction: 'expense', category: 'adjustment', account_id: null, debt_id: sloan2DebtId, source: 'adjustment', note: 'Opening balance' }, db)
+  postTransaction({ uuid: 'ob-sp',    date: SEED_TODAY, amount_cents: 435585,  direction: 'expense', category: 'adjustment', account_id: null, debt_id: spDebtId,     source: 'adjustment', note: 'Opening balance' }, db)
+  postTransaction({ uuid: 'ob-ryt',   date: SEED_TODAY, amount_cents: 85660,   direction: 'expense', category: 'adjustment', account_id: null, debt_id: rytDebtId,    source: 'adjustment', note: 'Opening balance' }, db)
 
   // -------------------------------------------------------------------------
   // Recurring templates (17): 3 income + 7 expenses (card) + 7 debt payments

@@ -1,7 +1,8 @@
 // server/utils/post.ts
-import { db } from '../db/index';
+import { db as defaultDb } from '../db/index';
 import { accounts, debts, transactions, recurringItems } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { nowEpoch, nextDueDate } from './mytDate';
 
 export interface PostInput {
@@ -10,7 +11,9 @@ export interface PostInput {
   amount_cents: number;    // + income/credit, − expense/debit
   direction: 'income' | 'expense' | 'transfer';
   category: 'food' | 'transport' | 'bills' | 'debt' | 'income' | 'savings' | 'interest' | 'adjustment' | 'other';
-  account_id: number;
+  // null is allowed ONLY for debt-only adjustment rows (opening-balance ledger entries for
+  // debts that have no linked cash account). When null the account leg is skipped entirely.
+  account_id: number | null;
   counter_account_id?: number | null;
   debt_id?: number | null;
   goal_id?: number | null;
@@ -20,18 +23,20 @@ export interface PostInput {
   is_estimate?: boolean;
 }
 
-export function postTransaction(input: PostInput): { id: number } {
+export function postTransaction(input: PostInput, db: BetterSQLite3Database<Record<string, unknown>> = defaultDb): { id: number } {
   return db.transaction((tx) => {
     const created = nowEpoch();
 
     // Insert ledger row; UUID UNIQUE constraint handles idempotency.
+    // account_id is nullable for debt-only adjustment rows (opening-balance entries for debts
+    // that have no linked cash account).
     const [row] = tx.insert(transactions).values({
       uuid: input.uuid,
       date: input.date,
       amount_cents: input.amount_cents,
       direction: input.direction,
       category: input.category,
-      account_id: input.account_id,
+      account_id: input.account_id ?? null,
       counter_account_id: input.counter_account_id ?? null,
       debt_id: input.debt_id ?? null,
       goal_id: input.goal_id ?? null,
@@ -46,6 +51,8 @@ export function postTransaction(input: PostInput): { id: number } {
     // Convention: amount_cents is the signed cash effect (+income/−expense) for non-card accounts.
     // Card accounts store outstanding debt as a NEGATIVE balance; interest/charges (positive
     // amount_cents) must make the balance MORE negative, so we negate for card type.
+    // When account_id is null (debt-only opening row) the account leg is skipped entirely.
+    if (input.account_id != null) {
     const acct = tx.select().from(accounts).where(eq(accounts.id, input.account_id)).get();
     const isCard = acct?.type === 'card';
     // E2: final form — no scratch/Math.sign line.
@@ -53,6 +60,7 @@ export function postTransaction(input: PostInput): { id: number } {
     tx.update(accounts)
       .set({ balance_cents: sql`${accounts.balance_cents} + ${acctDelta}`, updated_at: created })
       .where(eq(accounts.id, input.account_id)).run();
+    }
 
     // --- Counter-account leg (A3: transfers write one row, two balance updates) ---
     // counter receives −amount_cents so a transfer of amount=−30000 credits the counter by +30000.
@@ -99,7 +107,7 @@ export function postTransaction(input: PostInput): { id: number } {
   });
 }
 
-export function recomputeBalances(): void {
+export function recomputeBalances(db: BetterSQLite3Database<Record<string, unknown>> = defaultDb): void {
   db.transaction((tx) => {
     const now = nowEpoch();
 

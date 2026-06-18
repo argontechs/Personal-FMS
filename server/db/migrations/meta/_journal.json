@@ -8,6 +8,13 @@
       "when": 1781788009173,
       "tag": "0000_minor_kingpin",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1750204800000,
+      "tag": "0001_opening_balance_nullable_account",
+      "breakpoints": true
     }
   ]
 }
