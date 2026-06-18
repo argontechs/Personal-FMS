@@ -32,5 +32,8 @@ export default defineNuxtConfig({
     filename: 'sw.ts',
     registerType: 'autoUpdate',
     injectManifest: { swSrc: 'sw.ts' },
+    // SW is built in production only — running it under `nuxt dev` trips the
+    // injectManifest rollup-input resolution and isn't needed for local dev.
+    devOptions: { enabled: false },
   },
 })
