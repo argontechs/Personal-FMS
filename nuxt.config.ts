@@ -4,13 +4,13 @@ export default defineNuxtConfig({
   ssr: false,
   modules: ['@vite-pwa/nuxt'],
   runtimeConfig: {
-    vapidPrivateKey: '',
-    vapidSubject: '',
+    vapidPrivateKey: '',          // env NUXT_VAPID_PRIVATE_KEY
+    vapidSubject: 'mailto:yongwei1127@gmail.com',
     runDueSecret: '',
     sessionPassword: '',
     public: {
       // RUNTIME config — populated from env NUXT_PUBLIC_VAPID_PUBLIC_KEY, never import.meta.env
-      vapidPublicKey: '',
+      vapidPublicKey: '',         // env NUXT_PUBLIC_VAPID_PUBLIC_KEY
     },
   },
   nitro: {
