@@ -10,13 +10,21 @@ export default defineEventHandler(async (event) => {
   requireSession(event)
   const b = await readBody(event)
 
-  if (!b?.account_id || typeof b.target_cents !== 'number') {
+  if (typeof b?.account_id !== 'number' || typeof b.target_cents !== 'number') {
     throw createError({ statusCode: 400, statusMessage: 'account_id and target_cents required' })
+  }
+
+  if (!Number.isInteger(b.target_cents)) {
+    throw createError({ statusCode: 400, statusMessage: 'target_cents must be an integer' })
   }
 
   const acc = db.select().from(accounts).where(eq(accounts.id, b.account_id)).get()
   if (!acc) {
     throw createError({ statusCode: 404, statusMessage: 'account not found' })
+  }
+
+  if (acc.type === 'card') {
+    throw createError({ statusCode: 400, statusMessage: 'correct-cash is not supported for card accounts' })
   }
 
   const delta = b.target_cents - acc.balance_cents

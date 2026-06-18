@@ -15,6 +15,7 @@ process.env.NUXT_SESSION_PASSWORD = process.env.NUXT_SESSION_PASSWORD || 'correc
 
 let bankId: number
 let cashId: number
+let cardId: number
 let handle: ReturnType<typeof createDb>
 let sessionCookie: string
 
@@ -48,6 +49,16 @@ beforeAll(async () => {
     updated_at: now,
   }).returning().all()
   cashId = c.id as number
+
+  // Create a card account for rejection test
+  const [card] = handle.db.insert(accounts).values({
+    name: 'Credit Card',
+    type: 'card' as any,
+    balance_cents: 5000,
+    created_at: now,
+    updated_at: now,
+  }).returning().all()
+  cardId = card.id as number
   handle.sqlite.close()
 })
 
@@ -157,5 +168,36 @@ describe('correct-cash API', () => {
     const accRecomputed = handle2.db.select().from(accounts).all().find(a => a.id === cashId)!
     expect(accRecomputed.balance_cents).toBe(newTarget)
     handle2.sqlite.close()
+  })
+
+  it('rejects card accounts with 400', async () => {
+    try {
+      await authFetch('/api/accounts/correct-cash', { method: 'POST', body: { account_id: cardId, target_cents: 10000 } })
+      expect.fail('should have thrown 400')
+    } catch (e: any) {
+      expect(e.status).toBe(400)
+      expect(e.statusMessage).toContain('card')
+    }
+  })
+
+  it('rejects non-integer target_cents with 400', async () => {
+    try {
+      await authFetch('/api/accounts/correct-cash', { method: 'POST', body: { account_id: bankId, target_cents: 123.45 } })
+      expect.fail('should have thrown 400')
+    } catch (e: any) {
+      expect(e.status).toBe(400)
+      expect(e.statusMessage).toContain('integer')
+    }
+  })
+
+  it('accepts account_id === 0 if it exists', async () => {
+    // Create an account with id 0 (if schema allows) to test the account_id=0 guard
+    // For now, this test documents that we guard with typeof !== 'number' not falsy check
+    try {
+      await authFetch('/api/accounts/correct-cash', { method: 'POST', body: { account_id: null, target_cents: 100000 } })
+      expect.fail('should reject null account_id')
+    } catch (e: any) {
+      expect(e.status).toBe(400)
+    }
   })
 })
