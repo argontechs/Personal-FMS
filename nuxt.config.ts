@@ -25,9 +25,11 @@ export default defineNuxtConfig({
   },
   pwa: {
     strategies: 'injectManifest',
-    srcDir: 'app',
+    // With Nuxt 4's srcDir='app/', vite root is already <project>/app.
+    // srcDir here is relative to vite root, so '.' resolves correctly.
+    srcDir: '.',
     filename: 'sw.ts',
     registerType: 'autoUpdate',
-    injectManifest: { swSrc: 'app/sw.ts' },
+    injectManifest: { swSrc: 'sw.ts' },
   },
 })
