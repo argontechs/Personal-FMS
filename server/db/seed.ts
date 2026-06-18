@@ -19,12 +19,12 @@ export function seedDatabase(db: Db): void {
   const base = { created_at: ts, updated_at: ts }
 
   // -------------------------------------------------------------------------
-  // Accounts (4): bank, card, TNG ewallet, EF savings
+  // Accounts (7): Main Bank, Cash, UOB One, TnG eWallet, Public Bank, Credit Card, EF savings
   // All accounts start at balance_cents = 0; opening balances are posted below
   // via postTransaction so that recomputeBalances() is non-destructive.
   // -------------------------------------------------------------------------
   const bankId = db.insert(accounts).values({
-    name: 'Bank Current',
+    name: 'Main Bank',
     type: 'bank',
     balance_cents: 0,
     sort_order: 0,
@@ -47,7 +47,7 @@ export function seedDatabase(db: Db): void {
   }).returning({ id: accounts.id }).get().id
 
   const tngId = db.insert(accounts).values({
-    name: 'TNG eWallet',
+    name: 'TnG eWallet',
     type: 'ewallet',
     balance_cents: 0,
     sort_order: 2,
@@ -59,6 +59,30 @@ export function seedDatabase(db: Db): void {
     type: 'savings',
     balance_cents: 0, // Opens at RM0 — ledger entries fund it later (no opening row needed)
     sort_order: 3,
+    ...base,
+  }).returning({ id: accounts.id }).get().id
+
+  const cashId = db.insert(accounts).values({
+    name: 'Cash',
+    type: 'cash',
+    balance_cents: 0,
+    sort_order: 4,
+    ...base,
+  }).returning({ id: accounts.id }).get().id
+
+  const uobId = db.insert(accounts).values({
+    name: 'UOB One',
+    type: 'bank',
+    balance_cents: 0,
+    sort_order: 5,
+    ...base,
+  }).returning({ id: accounts.id }).get().id
+
+  const publicBankId = db.insert(accounts).values({
+    name: 'Public Bank',
+    type: 'bank',
+    balance_cents: 0, // Opens at RM0 — salary lands here; no opening row needed
+    sort_order: 6,
     ...base,
   }).returning({ id: accounts.id }).get().id
 
@@ -179,13 +203,21 @@ export function seedDatabase(db: Db): void {
   // -------------------------------------------------------------------------
 
   // --- Account opening balances ---
-  // Bank: non-card → bank.balance += 75000 = 75000 ✓
+  // Main Bank: non-card → bank.balance += 75000 = 75000 ✓
   postTransaction({ uuid: 'ob-bank', date: SEED_TODAY, amount_cents: 75000, direction: 'income', category: 'adjustment', account_id: bankId, source: 'adjustment', note: 'Opening balance' }, db)
 
-  // TNG eWallet: non-card → tng.balance += 25000 = 25000 ✓
-  postTransaction({ uuid: 'ob-tng', date: SEED_TODAY, amount_cents: 25000, direction: 'income', category: 'adjustment', account_id: tngId, source: 'adjustment', note: 'Opening balance' }, db)
+  // TnG eWallet: non-card → tng.balance += 6995 = 6995 ✓
+  postTransaction({ uuid: 'ob-tng', date: SEED_TODAY, amount_cents: 6995, direction: 'income', category: 'adjustment', account_id: tngId, source: 'adjustment', note: 'Opening balance' }, db)
 
   // EF: opens at 0 — no row needed (ledger entries fund it later)
+
+  // Cash: non-card → cash.balance += 27200 = 27200 ✓
+  postTransaction({ uuid: 'ob-cash', date: SEED_TODAY, amount_cents: 27200, direction: 'income', category: 'adjustment', account_id: cashId, source: 'adjustment', note: 'Opening balance' }, db)
+
+  // UOB One: non-card → uob.balance += 280 = 280 ✓
+  postTransaction({ uuid: 'ob-uob', date: SEED_TODAY, amount_cents: 280, direction: 'income', category: 'adjustment', account_id: uobId, source: 'adjustment', note: 'Opening balance' }, db)
+
+  // Public Bank: opens at 0 — no opening row needed
 
   // --- Card account + debt opening balance (single row covers both) ---
   // Card account (type='card'): post.ts applies acctDelta = -amount_cents
@@ -230,7 +262,7 @@ export function seedDatabase(db: Db): void {
       amount_cents: 581950, // RM5,819.50
       day: 3,
       category: 'income',
-      funding: bankId,
+      funding: publicBankId, // Salary lands in Public Bank (not Main Bank)
     },
     {
       name: 'Side Income A',

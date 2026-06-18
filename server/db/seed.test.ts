@@ -16,9 +16,9 @@ describe('seedDatabase — real 2026-06-18 data', () => {
   })
   afterAll(() => handle.sqlite.close())
 
-  it('seeds 4 accounts incl. an EF savings account opening at RM0', () => {
+  it('seeds 7 accounts incl. an EF savings account opening at RM0', () => {
     const rows = handle.db.select().from(accounts).all()
-    expect(rows).toHaveLength(4)
+    expect(rows).toHaveLength(7)
     const ef = rows.find((a) => a.type === 'savings')!
     expect(ef.balance_cents).toBe(0)
     const card = rows.find((a) => a.type === 'card')!
@@ -29,6 +29,18 @@ describe('seedDatabase — real 2026-06-18 data', () => {
     // Card account balance is stored as NEGATIVE (outstanding debt)
     // Opening-balance ledger row posts amount_cents=740076, so recomputed card.balance = -740076
     expect(card.balance_cents).toBe(-740076)
+    // Cash account exists at correct opening balance
+    const cash = rows.find((a) => a.name === 'Cash')!
+    expect(cash.type).toBe('cash')
+    expect(cash.balance_cents).toBe(27200)
+    // UOB One
+    const uob = rows.find((a) => a.name === 'UOB One')!
+    expect(uob.type).toBe('bank')
+    expect(uob.balance_cents).toBe(280)
+    // Public Bank opens at 0
+    const pb = rows.find((a) => a.name === 'Public Bank')!
+    expect(pb.type).toBe('bank')
+    expect(pb.balance_cents).toBe(0)
   })
 
   it('seeds the card debt with payoff_baseline frozen to the opening balance', () => {
@@ -73,6 +85,10 @@ describe('seedDatabase — real 2026-06-18 data', () => {
     expect(salary.amount_cents).toBe(581950)
     expect(salary.day_of_month).toBe(3)
     expect(salary.direction).toBe('income')
+    // Salary routes to Public Bank (not Main Bank)
+    const allAccounts = handle.db.select().from(accounts).all()
+    const publicBank = allAccounts.find((a) => a.name === 'Public Bank')!
+    expect(salary.funding_account_id).toBe(publicBank.id)
   })
 
   it('seeds the SPayLater recurring template with correct json and debt link (B3)', () => {
@@ -112,7 +128,7 @@ describe('seedDatabase — real 2026-06-18 data', () => {
 
   it('is idempotent — second call does not duplicate rows', () => {
     seedDatabase(handle.db)
-    expect(handle.db.select().from(accounts).all()).toHaveLength(4)
+    expect(handle.db.select().from(accounts).all()).toHaveLength(7)
     expect(handle.db.select().from(debts).all()).toHaveLength(7)
     expect(handle.db.select().from(recurringItems).all()).toHaveLength(17)
     expect(handle.db.select().from(goals).all()).toHaveLength(2)
@@ -122,6 +138,7 @@ describe('seedDatabase — real 2026-06-18 data', () => {
   // Parity test: recomputeBalances() must reproduce the exact opening values.
   // This proves the wipeout bug is gone — a PATCH/DELETE that calls
   // recomputeBalances() will not silently zero out the seeded balances.
+  // Asserts all 7 accounts + 7 debts.
   // ---------------------------------------------------------------------------
   it('recomputeBalances() after seed reproduces all opening balances (parity proof)', () => {
     // Corrupt every balance to 0, then rebuild from ledger.
@@ -134,12 +151,21 @@ describe('seedDatabase — real 2026-06-18 data', () => {
     const accs = handle.db.select().from(accounts).all()
     const dbs = handle.db.select().from(debts).all()
 
-    // --- Accounts ---
-    const bank = accs.find((a) => a.name === 'Bank Current')!
+    // --- Accounts (all 7) ---
+    const bank = accs.find((a) => a.name === 'Main Bank')!
     expect(bank.balance_cents).toBe(75000) // RM750.00
 
-    const tng = accs.find((a) => a.name === 'TNG eWallet')!
-    expect(tng.balance_cents).toBe(25000) // RM250.00
+    const cash = accs.find((a) => a.name === 'Cash')!
+    expect(cash.balance_cents).toBe(27200) // RM272.00
+
+    const uob = accs.find((a) => a.name === 'UOB One')!
+    expect(uob.balance_cents).toBe(280) // RM2.80
+
+    const tng = accs.find((a) => a.name === 'TnG eWallet')!
+    expect(tng.balance_cents).toBe(6995) // RM69.95
+
+    const pb = accs.find((a) => a.name === 'Public Bank')!
+    expect(pb.balance_cents).toBe(0) // RM0 (no opening row)
 
     const ef = accs.find((a) => a.type === 'savings')!
     expect(ef.balance_cents).toBe(0) // EF opens at RM0
@@ -148,7 +174,11 @@ describe('seedDatabase — real 2026-06-18 data', () => {
     const card = accs.find((a) => a.type === 'card')!
     expect(card.balance_cents).toBe(-740076) // -RM7,400.76
 
-    // --- Debts ---
+    // --- Total liquid (Main Bank + Cash + UOB + TnG + Public Bank) ---
+    const totalLiquid = bank.balance_cents + cash.balance_cents + uob.balance_cents + tng.balance_cents + pb.balance_cents
+    expect(totalLiquid).toBe(109475) // RM1,094.75
+
+    // --- Debts (all 7, unchanged) ---
     const cardDebt = dbs.find((d) => d.type === 'revolving')!
     expect(cardDebt.balance_cents).toBe(740076)
 

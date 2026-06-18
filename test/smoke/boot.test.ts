@@ -64,7 +64,7 @@ describe('boot + migrate + seed + protected route', () => {
 
     const accounts = await $fetch('/api/accounts', { headers: { cookie } })
     expect(Array.isArray(accounts)).toBe(true)
-    expect(accounts).toHaveLength(4)
+    expect(accounts).toHaveLength(7)
     expect((accounts as any[]).some((a) => a.type === 'savings')).toBe(true)
   })
 })
