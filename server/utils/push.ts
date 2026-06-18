@@ -1,5 +1,6 @@
 import webpush from 'web-push'
 import { useRuntimeConfig } from '#imports'
+import { pruneSubscription, markSubscriptionOk } from './pruneSubscription'
 
 export type PushPayload = {
   title: string
@@ -35,8 +36,14 @@ export async function sendPush(
       JSON.stringify(payload),
       { TTL: ttlSeconds },
     )
+    markSubscriptionOk(sub.endpoint)
     return { ok: true }
   } catch (e: any) {
-    return { ok: false, statusCode: e?.statusCode }
+    const statusCode: number | undefined = e?.statusCode
+    // 404 (endpoint gone) and 410 (subscription expired) both mean the subscription is dead.
+    if (statusCode === 404 || statusCode === 410) {
+      pruneSubscription(sub.endpoint)
+    }
+    return { ok: false, statusCode }
   }
 }

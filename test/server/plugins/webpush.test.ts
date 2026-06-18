@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
+import { sqlite, db } from '../../../server/db/index'
+import { runMigrations } from '../../../server/db/migrate'
+import { pushSubscriptions } from '../../../server/db/schema'
 
 const setVapidDetails = vi.fn()
 const sendNotification = vi.fn()
@@ -11,9 +14,15 @@ vi.mock('#imports', () => ({
   }),
 }))
 
-describe('webpush util', () => {
-  beforeEach(() => { setVapidDetails.mockClear(); sendNotification.mockClear() })
+// Migrations needed because sendPush now calls pruneSubscription/markSubscriptionOk.
+beforeAll(() => { runMigrations(sqlite) })
+beforeEach(() => {
+  setVapidDetails.mockClear()
+  sendNotification.mockClear()
+  db.delete(pushSubscriptions).run()
+})
 
+describe('webpush util', () => {
   it('configures VAPID details from runtime config', async () => {
     const { getWebPush } = await import('../../../server/utils/push')
     getWebPush()
@@ -22,6 +31,8 @@ describe('webpush util', () => {
 
   it('sendPush returns ok:true on success', async () => {
     sendNotification.mockResolvedValueOnce({ statusCode: 201 })
+    // Seed the row so markSubscriptionOk has something to update.
+    db.insert(pushSubscriptions).values({ endpoint: 'https://x', p256dh: 'a', auth: 'b', created_at: 1 }).run()
     const { sendPush } = await import('../../../server/utils/push')
     const r = await sendPush(
       { endpoint: 'https://x', p256dh: 'a', auth: 'b' },
@@ -32,6 +43,8 @@ describe('webpush util', () => {
 
   it('sendPush returns ok:false with statusCode on 410', async () => {
     sendNotification.mockRejectedValueOnce({ statusCode: 410 })
+    // Seed the row so pruneSubscription has something to update.
+    db.insert(pushSubscriptions).values({ endpoint: 'https://x', p256dh: 'a', auth: 'b', created_at: 1 }).run()
     const { sendPush } = await import('../../../server/utils/push')
     const r = await sendPush({ endpoint: 'https://x', p256dh: 'a', auth: 'b' }, { title: 'T', body: 'B', url: '/', tag: 't' })
     expect(r).toEqual({ ok: false, statusCode: 410 })

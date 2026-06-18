@@ -8,6 +8,12 @@ export default defineConfig({
     projects: [
       {
         // Node environment for server, scripts, and integration tests
+        resolve: {
+          alias: {
+            // Nuxt auto-import shim for server-side unit tests (push.ts uses useRuntimeConfig).
+            '#imports': resolve(__dirname, 'test/server/__stubs__/nuxt-imports.ts'),
+          },
+        },
         test: {
           name: 'node',
           environment: 'node',
