@@ -18,22 +18,38 @@ describe('dispatch builders', () => {
     expect(dueWindow(5)).toBeNull()
   })
 
-  it('spayLaterNextAmount reads index 0 without mutating', () => {
-    const json = '[151950,83682,63165]'
-    expect(spayLaterNextAmount(json)).toBe(151950)
-    expect(json).toBe('[151950,83682,63165]') // unchanged
-    expect(spayLaterNextAmount(null)).toBeNull()
+  it('spayLaterNextAmount returns arr[postedCount] (declining) and null when done', () => {
+    const json = '[151950,83682,63165,57307,48212,32100,22450,14651]'
+    expect(spayLaterNextAmount(json, 0)).toBe(151950)  // first installment
+    expect(spayLaterNextAmount(json, 3)).toBe(57307)   // 4th installment
+    expect(spayLaterNextAmount(json, 7)).toBe(14651)   // last installment
+    expect(spayLaterNextAmount(json, 8)).toBeNull()    // all posted — done
+    expect(json).toBe('[151950,83682,63165,57307,48212,32100,22450,14651]') // never mutated
+    expect(spayLaterNextAmount(null, 0)).toBeNull()
+    expect(spayLaterNextAmount('[]', 0)).toBeNull()
   })
 
-  it('buildBillDuePayload shows the declining SPayLater amount, not the template amount', () => {
+  it('buildBillDuePayload shows the correct declining SPayLater amount at postedCount=3', () => {
+    const json = '[151950,83682,63165,57307,48212]'
+    const p = buildBillDuePayload(
+      { name: 'ShopeePayLater', amount_cents: 0, remaining_installments_json: json, next_due_date: '2026-07-10' },
+      '3-day',
+      3, // 3 installments already auto-posted
+    )
+    expect(p.title).toContain('ShopeePayLater')
+    expect(p.body).toContain('RM573.07')   // arr[3] = 57307 sen
+    expect(p.body).not.toContain('RM1,519.50')
+    expect(p.tag).toContain('bill-due')
+    expect(p.url).toBe('/?focus=bills')
+  })
+
+  it('buildBillDuePayload at postedCount=0 shows first installment (RM1,519.50)', () => {
     const p = buildBillDuePayload(
       { name: 'ShopeePayLater', amount_cents: 0, remaining_installments_json: '[151950,83682]', next_due_date: '2026-07-10' },
       '3-day',
+      0,
     )
-    expect(p.title).toContain('ShopeePayLater')
     expect(p.body).toContain('RM1,519.50')
-    expect(p.tag).toContain('bill-due')
-    expect(p.url).toBe('/?focus=bills')
   })
 
   it('buildBillDuePayload uses the template amount for flat bills', () => {

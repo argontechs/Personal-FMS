@@ -14,17 +14,34 @@ export function dueWindow(daysOut: number): 'today' | '1-day' | '3-day' | null {
   return null
 }
 
-export function spayLaterNextAmount(remaining_installments_json: string | null): number | null {
+/**
+ * Returns the next SPayLater installment amount (in sen/cents) that `post-recurring` will post.
+ *
+ * Contract for Task 4.6 (notify-dispatch):
+ *   postedCount = number of auto-posted SPayLater transactions already committed for this
+ *   recurring template (i.e. WHERE source='auto' AND template_id = <id>, same query used
+ *   in post-recurring). Pass that count here so the reminder always mirrors what
+ *   post-recurring will post next.
+ *
+ * Returns null when:
+ *   - json is null / empty string (non-SPayLater bill)
+ *   - postedCount >= arr.length (all installments have been posted — done)
+ */
+export function spayLaterNextAmount(remaining_installments_json: string | null, postedCount: number): number | null {
   if (!remaining_installments_json) return null
   const arr = JSON.parse(remaining_installments_json) as number[]
-  return arr.length ? arr[0] : null
+  if (!arr.length || postedCount >= arr.length) return null
+  return arr[postedCount]
 }
 
 export function buildBillDuePayload(
   item: { name: string; amount_cents: number; remaining_installments_json: string | null; next_due_date: string },
   window: 'today' | '1-day' | '3-day',
+  /** For SPayLater bills: number of auto-posted installments already committed (same count
+   *  used by post-recurring). Ignored for flat bills (remaining_installments_json === null). */
+  postedCount = 0,
 ): PushPayload {
-  const amount = spayLaterNextAmount(item.remaining_installments_json) ?? item.amount_cents
+  const amount = spayLaterNextAmount(item.remaining_installments_json, postedCount) ?? item.amount_cents
   const whenText = window === 'today' ? 'due today' : window === '1-day' ? 'due tomorrow' : 'due in 3 days'
   return {
     title: `${item.name} ${whenText}`,
