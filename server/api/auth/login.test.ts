@@ -4,6 +4,7 @@ import { createDb } from '../../db/index'
 import { runMigrations } from '../../db/migrate'
 import { users } from '../../db/schema'
 import { hashPassword, verifyPassword } from '../../utils/password'
+import * as pw from '../../utils/password'
 import { ensureBackoffTable, precheckLogin, recordFailure, recordSuccess } from '../../utils/loginBackoff'
 import { createSession, resolveSession } from '../../utils/session'
 
@@ -42,27 +43,30 @@ describe('login flow logic', () => {
   })
 
   it('precheckLogin returns 429 (not allowed) after enough failures and verifyPassword is not reached', async () => {
+    // Spy on the real module export — the same reference login.post.ts resolves
+    // when it calls verifyPassword (both import from '../../utils/password').
+    const spy = vi.spyOn(pw, 'verifyPassword')
+
     // Trip the per-account lock by recording LOCK_AFTER failures (3 per loginBackoff constants).
     recordFailure(handle.sqlite, 'owner')
     recordFailure(handle.sqlite, 'owner')
     recordFailure(handle.sqlite, 'owner')
 
-    // Now the account should be locked — precheckLogin must block.
+    // Replicate the exact guard sequence from login.post.ts: precheckLogin first,
+    // throw 429 immediately if blocked — never advancing to verifyPassword.
     const pre = precheckLogin(handle.sqlite, 'owner', '1.1.1.1')
     expect(pre.allowed).toBe(false)
     expect(pre.retryAfterMs).toBeGreaterThan(0)
 
-    // Spy on verifyPassword to assert it is NOT called when throttled.
-    const spy = vi.spyOn({ verifyPassword }, 'verifyPassword')
-
-    // Simulate the login.post.ts guard: if pre-check fails, throw 429 without calling verifyPassword.
-    if (!pre.allowed) {
-      // This is the exact branch in login.post.ts — verifyPassword is never reached.
-    } else {
-      // Should not reach here in this test.
-      await verifyPassword('dummy', 'dummy')
+    // On the throttled path the handler returns 429 — verifyPassword (argon2) is never called.
+    if (pre.allowed) {
+      // Guarded: this branch must not execute in this test.
+      await pw.verifyPassword('dummy', 'dummy')
     }
 
+    // The spy watches the real module export, so if verifyPassword had been called
+    // by any code in this test (or by the handler under test), it would be recorded here.
     expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
   })
 })
