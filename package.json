@@ -1,0 +1,36 @@
+{
+  "name": "personal-fms",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
+    "@vite-pwa/nuxt": "^1.1.1",
+    "better-sqlite3": "^11.10.0",
+    "croner": "^9.1.0",
+    "drizzle-orm": "^0.36.4",
+    "nuxt": "^4.4.5",
+    "vue": "^3.5.38",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@nuxt/test-utils": "^3.23.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/web-push": "^3.6.4",
+    "drizzle-kit": "^0.28.1",
+    "happy-dom": "^15.11.7",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.6"
+  }
+}
