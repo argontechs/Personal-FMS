@@ -6,8 +6,9 @@ import { readCard } from '../utils/debtReads'
 import { cardMonthlyInterestCents, cardFreeDate } from '../utils/cardPayoff'
 import { payoffProgress, btRecommendation } from '../utils/payoff'
 import { computeMonthlyRollup } from '../utils/monthlyRollup'
+import { readEFBalance } from '../utils/debtReads'
 import { todayMYT } from '../utils/mytDate'
-import { CARD_UTIL_WARN, CARD_UTIL_DECLINE } from '../utils/forecastConstants'
+import { CARD_UTIL_WARN, CARD_UTIL_DECLINE, EF_STARTER_TARGET, SAVINGS_TARGET_PER_CYCLE } from '../utils/forecastConstants'
 
 export default defineEventHandler((event) => {
   requireSession(event) // §5 / §14 #22: session-gated → 401 unauth
@@ -29,9 +30,16 @@ export default defineEventHandler((event) => {
     bt_status: debt.bt_status,
   })
 
-  // §14 D3: surplus routed at the card = surplusAfterInterestCents from the monthly rollup.
-  // This is the post-EF/savings allocation figure; NOT the raw surplus.
-  const monthlyPaymentCents = computeMonthlyRollup(db, todayISO.slice(0, 7)).surplusAfterInterestCents
+  // §14 D3: card-routed payment = surplus after interest MINUS the monthly EF allocation
+  // (0 once the RM1,000 starter buffer is funded), per §14 D3.
+  // While the EF balance < EF_STARTER_TARGET, allocate 3 × SAVINGS_TARGET_PER_CYCLE/mo to the EF;
+  // once funded the allocation drops to 0 and the full surplus routes to the card.
+  const { surplusAfterInterestCents } = computeMonthlyRollup(db, todayISO.slice(0, 7))
+  const efBalanceCents = readEFBalance(db)
+  const efMonthlyAllocationCents = efBalanceCents < EF_STARTER_TARGET
+    ? 3 * SAVINGS_TARGET_PER_CYCLE
+    : 0
+  const monthlyPaymentCents = Math.max(0, surplusAfterInterestCents - efMonthlyAllocationCents)
 
   const { months: cardFreeMonths, cardFreeISO } = cardFreeDate(
     { balance_cents: cardBalanceCents, apr_bps: debt.apr_bps, bt_status: debt.bt_status },

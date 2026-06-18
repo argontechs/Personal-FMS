@@ -13,3 +13,16 @@ export function readCard(db: DB): {
   const account = db.select().from(accounts).where(eq(accounts.debt_id, debt.id)).get()
   return { debt, account }
 }
+
+/**
+ * Returns the current balance_cents of the Emergency Fund account (type='savings').
+ * Returns 0 if no EF account exists (treat as unfunded — keep allocating to buffer).
+ */
+export function readEFBalance(db: DB): number {
+  const row = db
+    .select({ balance_cents: accounts.balance_cents })
+    .from(accounts)
+    .where(eq(accounts.type, 'savings'))
+    .get()
+  return Number(row?.balance_cents ?? 0)
+}

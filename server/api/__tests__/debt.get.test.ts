@@ -16,8 +16,10 @@ const mockReadCard = vi.fn(() => ({
   debt: { balance_cents: 740076, apr_bps: 1800, bt_status: 'none' as const, payoff_baseline_cents: 740076 },
   account: { credit_limit_cents: 798740 },
 }))
+const mockReadEFBalance = vi.fn(() => 100000) // default: EF funded (≥ EF_STARTER_TARGET)
 vi.mock('../../utils/debtReads', () => ({
   readCard: (...args: any[]) => mockReadCard(...args),
+  readEFBalance: (...args: any[]) => mockReadEFBalance(...args),
 }))
 vi.mock('../../utils/monthlyRollup', () => ({
   computeMonthlyRollup: () => ({ surplusAfterInterestCents: 220000 } as any),
@@ -82,18 +84,38 @@ describe('GET /api/debt', () => {
     expect(res.btRecommendation).toBe('route_surplus_inside_promo')
   })
 
-  it('cardFreeDate uses surplusAfterInterestCents (routed payment, not raw surplus)', async () => {
-    // If it used raw surplus instead of surplusAfterInterestCents, the months figure would differ.
-    // The mock returns surplusAfterInterestCents=220000. cardFreeDate with balance=740076,
-    // apr=1800bps, payment=220000 should resolve within a few months.
-    const res = await handler(makeEvent({ today: '2026-06-18' }))
-    // With 220000/mo and 740076 balance + 18% APR:
+  it('cardFreeDate uses card-routed payment (surplus − EF allocation, 0 when buffer funded)', async () => {
+    // Default mock: EF balance=100000 (≥ EF_STARTER_TARGET=100000) → efMonthlyAllocation=0
+    // → cardRouted = 220000 − 0 = 220000. cardFreeDate with balance=740076, apr=1800bps:
     //   Month 1: 740076 + floor(740076*1800/120000)=11101 → 751177 − 220000 = 531177
     //   Month 2: 531177 + floor(531177*1800/120000)=7967  → 539144 − 220000 = 319144
     //   Month 3: 319144 + floor(319144*1800/120000)=4787  → 323931 − 220000 = 103931
     //   Month 4: 103931 + floor(103931*1800/120000)=1558  → 105489 − 220000 ≤ 0 ✓
+    const res = await handler(makeEvent({ today: '2026-06-18' }))
     expect(res.cardFreeMonths).toBe(4)
     expect(res.cardFreeISO).toBe('2026-10-18')
+  })
+
+  it('§14 D3: EF buffer building → reduces card-routed payment by 3×SAVINGS_TARGET_PER_CYCLE', async () => {
+    // EF balance=0 (< EF_STARTER_TARGET=100000) → efMonthlyAllocation = 3×16667 = 50001
+    // → cardRouted = 220000 − 50001 = 169999. Fewer surplus → more months needed.
+    mockReadEFBalance.mockReturnValueOnce(0)
+    const res = await handler(makeEvent({ today: '2026-06-18' }))
+    // With 169999/mo and 740076 balance + 18% APR:
+    //   Month 1: 740076 + 11101 → 751177 − 169999 = 581178
+    //   Month 2: 581178 + 8717  → 589895 − 169999 = 419896
+    //   Month 3: 419896 + 6298  → 426194 − 169999 = 256195
+    //   Month 4: 256195 + 3842  → 260037 − 169999 = 90038
+    //   Month 5: 90038  + 1350  → 91388  − 169999 ≤ 0 ✓  (5 months > 4 months when funded)
+    expect(res.cardFreeMonths).toBe(5)
+    expect(res.cardFreeMonths).toBeGreaterThan(4) // later date than when EF funded
+  })
+
+  it('§14 D3: EF buffer funded (balance ≥ EF_STARTER_TARGET) → allocation 0, full surplus to card', async () => {
+    // EF balance=100000 = EF_STARTER_TARGET → allocation=0 → cardRouted = 220000
+    mockReadEFBalance.mockReturnValueOnce(100000)
+    const res = await handler(makeEvent({ today: '2026-06-18' }))
+    expect(res.cardFreeMonths).toBe(4) // same as the fully-funded default case
   })
 
   it('utilDecline true when balance equals credit limit (maxed card)', async () => {
