@@ -66,4 +66,18 @@ describe('computeMonthlyRollup', () => {
     // June food row (-99999) must not appear in July living
     expect(computeMonthlyRollup(db, '2026-07').livingCents).toBe(183860)
   })
+
+  it('income counts only category=income, excludes adjustment rows', () => {
+    // Insert seed month with real income + opening-balance adjustment
+    const seedDb = makeDb()
+    seedDb.insert(transactions).values([
+      // real income
+      { uuid: 'salary1', date: '2026-06-05', amount_cents: 581950, direction: 'income', category: 'income', account_id: 1, source: 'auto', created_at: 1 },
+      // opening-balance adjustment (direction=income but category=adjustment)
+      { uuid: 'adjust1', date: '2026-06-01', amount_cents: 75000, direction: 'income', category: 'adjustment', account_id: 1, source: 'manual', created_at: 1 },
+    ]).run()
+    const result = computeMonthlyRollup(seedDb, '2026-06')
+    // Must count only the 581950 salary, NOT the 75000 adjustment
+    expect(result.incomeCents).toBe(581950)
+  })
 })

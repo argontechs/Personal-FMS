@@ -34,7 +34,7 @@ export function computeMonthlyRollup(db: DB, monthPrefix: string): MonthlyRollup
   const incomeRow = db
     .select({ total: sql<number>`COALESCE(SUM(${transactions.amount_cents}), 0)` })
     .from(transactions)
-    .where(and(eq(transactions.direction, 'income'), like(transactions.date, `${monthPrefix}-%`)))
+    .where(and(eq(transactions.category, 'income'), like(transactions.date, `${monthPrefix}-%`)))
     .get()
   const incomeCents = Number(incomeRow?.total ?? 0)
 
