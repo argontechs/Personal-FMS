@@ -1,8 +1,8 @@
 // server/utils/session.ts
-import { randomBytes } from 'node:crypto'
+import { randomBytes, createHmac, timingSafeEqual } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { H3Event } from 'h3'
-import { setCookie, deleteCookie } from 'h3'
+import { setCookie, deleteCookie, getCookie } from 'h3'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { sessions, users } from '../db/schema'
 import { nowEpoch } from './mytDate'
@@ -22,6 +22,87 @@ export type Session = {
 }
 
 type Db = BetterSQLite3Database<Record<string, unknown>>
+
+// ---------------------------------------------------------------------------
+// HMAC cookie-sealing — exported for unit tests
+// ---------------------------------------------------------------------------
+
+/** Compute HMAC-SHA256 of `id` keyed by `password`, returned as base64url. */
+export function computeHmac(id: string, password: string): string {
+  return createHmac('sha256', password).update(id).digest('base64url')
+}
+
+/**
+ * Produce the sealed cookie value `"<id>.<sig>"`.
+ * Throws if `password` is empty.
+ */
+export function sealSessionId(id: string, password: string): string {
+  if (!password) {
+    throw new Error(
+      '[session] sessionPassword is empty. ' +
+      'Set NUXT_SESSION_PASSWORD in your environment (min 32 chars recommended).'
+    )
+  }
+  return `${id}.${computeHmac(id, password)}`
+}
+
+/**
+ * Verify a sealed cookie value and return the raw session id, or null.
+ * Returns null on any failure: missing, malformed, tampered sig, or empty password.
+ */
+export function unsealSessionId(sealed: string, password: string): string | null {
+  if (!password) return null
+  if (!sealed) return null
+
+  const dotIndex = sealed.lastIndexOf('.')
+  if (dotIndex === -1) return null // bare id — no signature
+
+  const id = sealed.slice(0, dotIndex)
+  const sig = sealed.slice(dotIndex + 1)
+  if (!id || !sig) return null
+
+  const expected = computeHmac(id, password)
+  // Guard against length mismatch before constant-time compare.
+  if (sig.length !== expected.length) return null
+  if (!timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null
+  return id
+}
+
+// ---------------------------------------------------------------------------
+// Nitro request-context helpers (useRuntimeConfig is auto-imported by Nitro)
+// ---------------------------------------------------------------------------
+
+function requireSessionPassword(): string {
+  const cfg = useRuntimeConfig()
+  const pw: string = (cfg as Record<string, string>).sessionPassword ?? ''
+  if (!pw) {
+    throw new Error(
+      '[session] sessionPassword is empty. ' +
+      'Set NUXT_SESSION_PASSWORD in your environment (min 32 chars recommended).'
+    )
+  }
+  return pw
+}
+
+/**
+ * Read the session cookie, verify its HMAC seal, and return the raw session id.
+ * Returns null on any failure (missing, malformed, tampered, empty password).
+ */
+export function readSessionId(event: H3Event): string | null {
+  const raw = getCookie(event, SESSION_COOKIE)
+  if (!raw) return null
+  let password: string
+  try {
+    password = requireSessionPassword()
+  } catch {
+    return null
+  }
+  return unsealSessionId(raw, password)
+}
+
+// ---------------------------------------------------------------------------
+// DB helpers
+// ---------------------------------------------------------------------------
 
 export function createSession(db: Db, userId: number, epoch: number): { id: string; expiresAt: number } {
   const id = randomBytes(32).toString('hex')
@@ -59,13 +140,19 @@ export function revokeSession(db: Db, id: string): void {
   db.delete(sessions).where(eq(sessions.id, id)).run()
 }
 
+// ---------------------------------------------------------------------------
+// Cookie helpers
+// ---------------------------------------------------------------------------
+
 /**
  * Set the session cookie on the H3 response with hardened attributes (§14).
  * httpOnly + secure + sameSite=lax are ALWAYS set.
  * domain is only applied in production to avoid browser ignoring localhost cookies.
+ * The cookie value is HMAC-sealed: "<id>.<base64url-sig>".
  */
 export function setSessionCookie(event: H3Event, id: string, expiresAt: number): void {
-  setCookie(event, SESSION_COOKIE, id, {
+  const sealed = sealSessionId(id, requireSessionPassword())
+  setCookie(event, SESSION_COOKIE, sealed, {
     httpOnly: true,
     secure: true,
     sameSite: 'lax',

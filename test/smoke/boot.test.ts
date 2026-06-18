@@ -11,6 +11,8 @@ import { bootstrapUser } from '../../scripts/seed-user'
 // Prepare a real test DB the booted server will open (DATABASE_URL points here).
 const TEST_DB = './data/smoke.sqlite'
 process.env.DATABASE_URL = `file:${TEST_DB}`
+// NUXT_SESSION_PASSWORD must be present so the spawned Nitro server can seal/verify cookies.
+process.env.NUXT_SESSION_PASSWORD = process.env.NUXT_SESSION_PASSWORD || 'smoke-test-password-32-chars!!!!'
 
 beforeAll(async () => {
   // Always start from a clean slate — delete any file from a prior run.
@@ -33,7 +35,10 @@ beforeAll(async () => {
 await setup({
   server: true,
   browser: false,
-  env: { DATABASE_URL: `file:${TEST_DB}` },
+  env: {
+    DATABASE_URL: `file:${TEST_DB}`,
+    NUXT_SESSION_PASSWORD: process.env.NUXT_SESSION_PASSWORD,
+  },
   nuxtConfig: {
     // Disable the PWA module in tests — app/sw.ts is not built for the API smoke harness.
     modules: [],
