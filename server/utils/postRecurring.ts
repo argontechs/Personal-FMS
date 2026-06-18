@@ -62,8 +62,9 @@ export function runPostRecurring(asOf?: string): { posted: number; interest: num
     if (item.remaining_installments_json) {
       const schedule: number[] = JSON.parse(item.remaining_installments_json);
       // Count already-posted auto rows for this template to derive the current index.
+      // Only count source='auto' so manual entries don't advance the index.
       const alreadyPosted = db.select({ id: transactions.id }).from(transactions)
-        .where(eq(transactions.recurring_item_id, item.id)).all().length;
+        .where(and(eq(transactions.recurring_item_id, item.id), eq(transactions.source, 'auto'))).all().length;
       const idx = alreadyPosted;
       if (idx >= schedule.length) {
         // All installments exhausted — deactivate.

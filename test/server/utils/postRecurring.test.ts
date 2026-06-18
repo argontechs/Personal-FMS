@@ -92,6 +92,47 @@ describe('runPostRecurring', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // 2b. SPayLater: manual rows do NOT advance the index / cause skips
+  // ---------------------------------------------------------------------------
+  it('does NOT skip an installment if a manual source row exists for the same template', () => {
+    const b = bank();
+    const now = Date.now();
+    const json = JSON.stringify([151950, 83682, 63165, 57307]);
+    const [tpl] = db.insert(recurringItems).values({
+      name: 'ShopeePayLaterWithManual', direction: 'expense' as any, amount_cents: 0, cadence: 'monthly' as any,
+      day_of_month: 10, category: 'debt', funding_account_id: b, auto_post: true,
+      start_date: '2026-06-01', next_due_date: '2026-06-10', is_active: true,
+      remaining_installments_json: json, remaining_occurrences: 4,
+      created_at: now, updated_at: now,
+    }).returning().all();
+
+    // Manually insert a row for the same template (source='manual')
+    db.insert(transactions).values({
+      uuid: `manual-1`,
+      date: '2026-06-05',
+      amount_cents: -10000,
+      direction: 'expense' as any,
+      category: 'debt',
+      account_id: b,
+      source: 'manual',
+      recurring_item_id: tpl.id,
+      created_at: now,
+      updated_at: now,
+    }).run();
+
+    // Run the task on the first due date
+    runPostRecurring('2026-06-10');
+
+    const rows = db.select().from(transactions).all();
+    expect(rows.length).toBe(2); // manual + auto
+
+    // The auto-posted row must be index 0 (151950), NOT index 1 (83682)
+    const autoRow = rows.find(r => r.source === 'auto');
+    expect(autoRow).toBeDefined();
+    expect(autoRow!.amount_cents).toBe(-151950); // first installment by index
+  });
+
+  // ---------------------------------------------------------------------------
   // 3. Card interest: accrues on statement_day (bt_status none), idempotent
   // ---------------------------------------------------------------------------
   it('accrues card interest on statement_day (bt_status none) to debt + linked card account', () => {
