@@ -5,6 +5,7 @@ export function useRuntimeConfig() {
   return {
     vapidPrivateKey: '',
     vapidSubject: '',
+    smtpUrl: '',          // empty → sendMail no-ops in tests
     public: { vapidPublicKey: '' },
   }
 }

@@ -8,6 +8,7 @@ export default defineNuxtConfig({
     vapidSubject: 'mailto:yongwei1127@gmail.com',
     runDueSecret: '',
     sessionPassword: '',
+    smtpUrl: '',                  // env NUXT_SMTP_URL — VPS SMTP connection string
     public: {
       // RUNTIME config — populated from env NUXT_PUBLIC_VAPID_PUBLIC_KEY, never import.meta.env
       vapidPublicKey: '',         // env NUXT_PUBLIC_VAPID_PUBLIC_KEY
