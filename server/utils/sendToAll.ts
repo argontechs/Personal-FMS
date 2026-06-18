@@ -5,6 +5,7 @@
 import { isNull } from 'drizzle-orm'
 import { db, pushSubscriptions } from '../db'
 import { sendPush, type PushPayload } from './push'
+import { markSubscriptionOk } from './pruneSubscription'
 
 export async function sendToAll(payload: PushPayload): Promise<{ delivered: number; pruned: number }> {
   const subs = db
@@ -21,11 +22,15 @@ export async function sendToAll(payload: PushPayload): Promise<{ delivered: numb
     const r = await sendPush({ endpoint: s.endpoint, p256dh: s.p256dh, auth: s.auth }, payload)
     if (r.ok) {
       delivered++
+      // Recovery: mark the subscription as OK so it can be sent to again.
+      markSubscriptionOk(s.endpoint)
     } else if (r.statusCode === 404 || r.statusCode === 410) {
       // sendPush already called pruneSubscription internally; count it.
       pruned++
+    } else {
+      // Log non-terminal failures (5xx, network) so we don't silently drop them.
+      console.warn(`[sendToAll] sendPush failed: endpoint=${s.endpoint}, statusCode=${r.statusCode}`)
     }
-    // Other failures (5xx, network) are silently dropped; the subscription is not pruned.
   }
 
   return { delivered, pruned }
