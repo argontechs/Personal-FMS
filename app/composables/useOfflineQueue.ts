@@ -32,6 +32,12 @@ export function useOfflineQueue() {
     const txn: QueuedTxn = { ...input, uuid: input.uuid ?? crypto.randomUUID() };
     const db = await getDb();
     await db.put(STORE, txn); // put = upsert; re-enqueue of the same uuid is a no-op write
+    // Best-effort immediate sync: write to IDB first (offline-first guaranteed above),
+    // then attempt flush. If the network is down or the POST fails the item stays queued
+    // and will be retried on the next reconnect / app-open via registerAutoFlush.
+    if ((globalThis as any).navigator?.onLine !== false) {
+      flush().catch(() => {/* leave queued; registerAutoFlush will retry */});
+    }
     return txn;
   }
 

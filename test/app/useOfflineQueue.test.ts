@@ -14,6 +14,8 @@ import {
   IDBVersionChangeEvent,
 } from 'fake-indexeddb';
 import { useOfflineQueue, registerAutoFlush } from '../../app/composables/useOfflineQueue';
+// Import the plugin default export (will be a function due to defineNuxtPlugin shim)
+import offlineFlushPlugin from '../../app/plugins/offline-flush.client';
 
 // Install all IDB globals (once) so idb library's instanceof checks pass.
 // These are stable class references — only the factory (and thus DB state) is reset per test.
@@ -38,6 +40,13 @@ beforeEach(() => {
   posted.length = 0;
   // @ts-expect-error global injected by Nuxt at runtime
   globalThis.$fetch = vi.fn(async (_url: string, opts: any) => { posted.push(opts.body); return { id: posted.length }; });
+  // Default to offline so existing enqueue-then-flush tests control when flushing happens.
+  // Tests that explicitly verify the auto-flush-on-enqueue behaviour override this to true.
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { onLine: false },
+    configurable: true,
+    writable: true,
+  });
 });
 
 describe('useOfflineQueue', () => {
@@ -89,5 +98,75 @@ describe('useOfflineQueue', () => {
     await handlers['online'](); // simulate reconnect
     expect(posted.length).toBe(1);
     expect((await q.pending()).length).toBe(0);
+  });
+
+  it('enqueue fires flush when navigator.onLine is true, POSTing the txn immediately', async () => {
+    // Simulate navigator.onLine = true (default browser state)
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { onLine: true },
+      configurable: true,
+      writable: true,
+    });
+    const q = useOfflineQueue();
+    await q.enqueue({ date: '2026-06-18', amount_cents: -200, direction: 'expense', category: 'food', account_id: 1 });
+    // Flush triggered fire-and-forget; allow microtasks/promises to settle
+    await new Promise(r => setTimeout(r, 0));
+    expect(posted.length).toBe(1);
+    expect(posted[0].amount_cents).toBe(-200);
+    expect((await q.pending()).length).toBe(0);
+  });
+
+  it('enqueue does NOT trigger flush when navigator.onLine is false (offline-first guarantee)', async () => {
+    // Simulate navigator.onLine = false
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { onLine: false },
+      configurable: true,
+      writable: true,
+    });
+    const q = useOfflineQueue();
+    await q.enqueue({ date: '2026-06-18', amount_cents: -300, direction: 'expense', category: 'transport', account_id: 1 });
+    await new Promise(r => setTimeout(r, 0));
+    // $fetch should NOT have been called — item stays queued for later flush
+    expect(posted.length).toBe(0);
+    expect((await q.pending()).length).toBe(1);
+  });
+
+  it('enqueue flush failure leaves item queued (offline-first retained)', async () => {
+    // Simulate online but POST fails — item must stay in IDB for retry
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { onLine: true },
+      configurable: true,
+      writable: true,
+    });
+    // @ts-expect-error global injected by Nuxt
+    globalThis.$fetch = vi.fn(async () => { throw new Error('server error'); });
+    const q = useOfflineQueue();
+    await q.enqueue({ date: '2026-06-18', amount_cents: -400, direction: 'expense', category: 'other', account_id: 1 });
+    await new Promise(r => setTimeout(r, 0));
+    // flush was attempted but failed — item must remain queued
+    expect((await q.pending()).length).toBe(1);
+  });
+});
+
+describe('offline-flush.client plugin', () => {
+  it('calls registerAutoFlush with the real window when executed', () => {
+    const spy = vi.fn();
+    // The plugin imports registerAutoFlush; we verify the plugin calls through by checking
+    // that it adds event listeners to the window (the real contract).
+    const originalAddEventListener = window.addEventListener.bind(window);
+    const calls: string[] = [];
+    vi.spyOn(window, 'addEventListener').mockImplementation((event: string, ...args: any[]) => {
+      calls.push(event);
+      return originalAddEventListener(event, ...args);
+    });
+
+    // Execute the plugin (our defineNuxtPlugin shim returns the setup fn directly)
+    (offlineFlushPlugin as unknown as () => void)();
+
+    // registerAutoFlush wires 'online' and 'visibilitychange'
+    expect(calls).toContain('online');
+    expect(calls).toContain('visibilitychange');
+
+    vi.restoreAllMocks();
   });
 });

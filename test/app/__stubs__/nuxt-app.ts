@@ -14,3 +14,7 @@ export function useRuntimeConfig() {
 export function defineNuxtComponent(component: any) {
   return component
 }
+
+export function defineNuxtPlugin(setup: () => void) {
+  return setup
+}
