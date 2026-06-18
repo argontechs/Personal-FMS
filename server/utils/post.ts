@@ -111,13 +111,16 @@ export function recomputeBalances(db: BetterSQLite3Database<Record<string, unkno
   db.transaction((tx) => {
     const now = nowEpoch();
 
-    // --- Recompute account balances from ledger ---
+    // --- Step 1: Recompute non-card account balances from ledger ---
     // Non-card: balance = SUM(amount_cents WHERE account_id=A) + SUM(-amount_cents WHERE counter_account_id=A)
-    // Card:     balance = SUM(-amount_cents WHERE account_id=A) + SUM(-amount_cents WHERE counter_account_id=A)
-    //   (A3: derived balance = SUM(amount WHERE account_id=A) − SUM(amount WHERE counter_account_id=A))
+    // Card accounts with a linked debt_id are handled in Step 3 (mirror); card accounts
+    // without a debt_id fall back to ledger-sum here so they are always written.
     const accs = tx.select().from(accounts).all();
     for (const a of accs) {
       const isCard = a.type === 'card';
+      // Card accounts that have a debt back-link are mirrored in Step 3 — skip for now.
+      if (isCard && a.debt_id != null) continue;
+
       const primary = tx.select({ s: sql<number>`coalesce(sum(${transactions.amount_cents}), 0)` })
         .from(transactions).where(eq(transactions.account_id, a.id)).get();
       const counter = tx.select({ s: sql<number>`coalesce(sum(-${transactions.amount_cents}), 0)` })
@@ -129,7 +132,7 @@ export function recomputeBalances(db: BetterSQLite3Database<Record<string, unkno
       tx.update(accounts).set({ balance_cents: bal, updated_at: now }).where(eq(accounts.id, a.id)).run();
     }
 
-    // --- Recompute debt balances from ledger (A2: SUM(+amount_cents)) ---
+    // --- Step 2: Recompute debt balances from ledger (A2: SUM(+amount_cents)) ---
     // debt.balance = SUM(amount_cents WHERE debt_id=D)
     // Payment −50000 shrinks (adds negative), interest +11101 grows (adds positive).
     // Sanity: interest +11101 + payment −50000 = −38899 ✓
@@ -138,6 +141,17 @@ export function recomputeBalances(db: BetterSQLite3Database<Record<string, unkno
       const agg = tx.select({ s: sql<number>`coalesce(sum(${transactions.amount_cents}), 0)` })
         .from(transactions).where(eq(transactions.debt_id, d.id)).get();
       tx.update(debts).set({ balance_cents: Number(agg?.s ?? 0), updated_at: now }).where(eq(debts.id, d.id)).run();
+    }
+
+    // --- Step 3: Mirror card accounts to their linked debt (card balance = −debt balance) ---
+    // For any card account that has a debt_id back-link, derive its balance as −(debt.balance_cents).
+    // This guarantees cardAccount.balance_cents === −cardDebt.balance_cents after any recompute,
+    // regardless of payment wiring (e.g. payments routed to debt_id without a card-account leg).
+    for (const a of accs) {
+      if (a.type !== 'card' || a.debt_id == null) continue;
+      const linkedDebt = tx.select({ b: debts.balance_cents }).from(debts).where(eq(debts.id, a.debt_id)).get();
+      const bal = -(Number(linkedDebt?.b ?? 0));
+      tx.update(accounts).set({ balance_cents: bal, updated_at: now }).where(eq(accounts.id, a.id)).run();
     }
   });
 }
