@@ -41,11 +41,13 @@ export function precheckLogin(
   let windowStart = ipRow?.ip_window_start ?? now
   if (now - windowStart > IP_WINDOW_MS) { count = 0; windowStart = now }
   count += 1
+  if (count > IP_CAP) return { allowed: false, retryAfterMs: windowStart + IP_WINDOW_MS - now }
+
+  // Write only when allowed (count <= IP_CAP).
   sqlite.prepare(
     `INSERT INTO login_attempts (scope_key, ip_count, ip_window_start) VALUES (?,?,?)
      ON CONFLICT(scope_key) DO UPDATE SET ip_count = excluded.ip_count, ip_window_start = excluded.ip_window_start`,
   ).run(ipKey, count, windowStart)
-  if (count > IP_CAP) return { allowed: false, retryAfterMs: windowStart + IP_WINDOW_MS - now }
 
   return { allowed: true, retryAfterMs: 0 }
 }

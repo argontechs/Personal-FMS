@@ -35,4 +35,19 @@ describe('loginBackoff', () => {
     for (let i = 0; i < 10; i++) precheckLogin(sqlite, `acct${i}`, '9.9.9.9')
     expect(precheckLogin(sqlite, 'acctX', '9.9.9.9').allowed).toBe(false)
   })
+
+  it('re-allows IP after window expiry', () => {
+    // Hit the cap: 10 attempts from same IP
+    for (let i = 0; i < 10; i++) precheckLogin(sqlite, `acct${i}`, '8.8.8.8')
+    expect(precheckLogin(sqlite, 'acctY', '8.8.8.8').allowed).toBe(false)
+
+    // Expire the window by manually setting ip_window_start far in the past
+    const now = Math.floor(Date.now() / 1000)
+    sqlite.prepare(
+      `UPDATE login_attempts SET ip_window_start = ? WHERE scope_key = ?`,
+    ).run(now - 1000 * 60 * 20, 'ip:8.8.8.8') // 20 minutes ago (window is 15 min)
+
+    // Next attempt should be allowed (window expired, counter reset)
+    expect(precheckLogin(sqlite, 'acctZ', '8.8.8.8').allowed).toBe(true)
+  })
 })
