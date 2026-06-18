@@ -1,19 +1,15 @@
 {
   "name": "personal-fms",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs",
-    "test": "test"
-  },
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "start": "node .output/server/index.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepare": "nuxt prepare"
+  },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",
     "@vite-pwa/nuxt": "^1.1.1",
