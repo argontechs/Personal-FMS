@@ -2,13 +2,20 @@
 import { eq } from 'drizzle-orm'
 import { db, sqlite } from '../../db/index'
 import { users } from '../../db/schema'
-import { verifyPassword } from '../../utils/password'
+import { hashPassword, verifyPassword } from '../../utils/password'
 import {
   ensureBackoffTable, precheckLogin, recordFailure, recordSuccess,
 } from '../../utils/loginBackoff'
 import { createSession, setSessionCookie } from '../../utils/session'
 
 ensureBackoffTable(sqlite)
+
+// Lazily-cached dummy hash for constant-time missing-user path.
+// Computed once via hashPassword so argon2id runs at full cost (prevents timing enumeration).
+let dummyHashPromise: Promise<string> | null = null
+function getDummyHash(): Promise<string> {
+  return (dummyHashPromise ??= hashPassword('invalid-placeholder'))
+}
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ username?: string; password?: string }>(event)
@@ -28,7 +35,11 @@ export default defineEventHandler(async (event) => {
   }
 
   const user = db.select().from(users).where(eq(users.username, username)).get()
-  const ok = user ? await verifyPassword(user.password_hash, password) : false
+  // Always run a full argon2id verify to prevent username enumeration via timing.
+  // On the missing-user path, verify against the dummy hash and discard the result.
+  const ok = user
+    ? await verifyPassword(user.password_hash, password)
+    : (await verifyPassword(await getDummyHash(), password), false)
   if (!user || !ok) {
     recordFailure(sqlite, username)
     throw createError({ statusCode: 401, statusMessage: 'Invalid credentials' })
