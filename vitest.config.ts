@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
+import { resolve } from 'path'
 
 export default defineConfig({
   test: {
@@ -23,12 +24,20 @@ export default defineConfig({
         },
       },
       {
-        // happy-dom environment for client composables that use browser APIs (IndexedDB, etc.)
+        // happy-dom environment for client composables and component tests (browser APIs, Vue mounts)
         plugins: [vue()],
+        resolve: {
+          alias: {
+            // Nuxt auto-import shims — pages and composables use these aliases at runtime.
+            // Vitest doesn't run the Nuxt layer, so we map them to real paths.
+            '~': resolve(__dirname, 'app'),
+            '#app': resolve(__dirname, 'test/app/__stubs__/nuxt-app.ts'),
+          },
+        },
         test: {
           name: 'happy-dom',
           environment: 'happy-dom',
-          include: ['test/app/**/*.test.ts'],
+          include: ['test/app/**/*.test.ts', 'app/components/__tests__/**/*.test.ts'],
           env: {
             DATABASE_URL: ':memory:',
           },
