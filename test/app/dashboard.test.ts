@@ -33,7 +33,7 @@ const mockGoals = {
 
 const mockAccounts = [
   { id: 7, type: 'cash', balance_cents: 100000 },
-  { id: 3, type: 'checking', balance_cents: 200000 },
+  { id: 3, type: 'bank', balance_cents: 200000 },
   { id: 5, type: 'savings', balance_cents: 45000 },
 ]
 
