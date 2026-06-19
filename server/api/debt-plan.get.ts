@@ -22,7 +22,8 @@ export default defineEventHandler((event) => {
   const q = getQuery(event)
   const todayISO = typeof q.today === 'string' ? q.today : todayMYT()
 
-  // All open debts, avalanche-ordered (priority_rank ASC, nulls last) — same order as /api/debts.
+  // All open debts, avalanche-ordered: explicit priority_rank ASC (nulls last) as the override,
+  // then highest apr_bps first, then id — mirroring projectDebtPlan's prepayable comparator.
   const rows = db
     .select({
       id: debts.id,
@@ -35,10 +36,14 @@ export default defineEventHandler((event) => {
       min_payment_cents: debts.min_payment_cents,
       scheduled_payment_cents: debts.scheduled_payment_cents,
       priority_rank: debts.priority_rank,
+      never_prepay: debts.never_prepay,
+      remaining_installments_json: debts.remaining_installments_json,
     })
     .from(debts)
     .where(eq(debts.is_closed, false))
-    .orderBy(sql`CASE WHEN ${debts.priority_rank} IS NULL THEN 1 ELSE 0 END, ${debts.priority_rank} ASC`)
+    .orderBy(
+      sql`CASE WHEN ${debts.priority_rank} IS NULL THEN 1 ELSE 0 END, ${debts.priority_rank} ASC, ${debts.apr_bps} DESC, ${debts.id} ASC`,
+    )
     .all()
 
   // §14 D3 monthly-extra source: surplus-after-interest MINUS the EF allocation while building the
@@ -59,6 +64,8 @@ export default defineEventHandler((event) => {
     scheduled_payment_cents: r.scheduled_payment_cents,
     priority_rank: r.priority_rank,
     type: r.type,
+    never_prepay: r.never_prepay,
+    remaining_installments_json: r.remaining_installments_json,
   }))
 
   const plan = projectDebtPlan(planInput, monthlyExtraCents, todayISO)

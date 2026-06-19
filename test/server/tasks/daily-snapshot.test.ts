@@ -125,6 +125,19 @@ describe('daily-snapshot — metrics + upsert', () => {
     expect(rows).toHaveLength(2);
     expect(rows.map((r) => r.date).sort()).toEqual(['2026-06-19', '2026-06-20']);
   });
+
+  it('EXCLUDES inactive accounts from liquid/net worth (aligned with the Accounts screen filter)', () => {
+    // accounts.vue assetAccounts = type !== 'card' && is_active !== false. An inactive bank account
+    // must NOT count toward snapshot liquid/net worth, or Trends diverges from the Accounts screen.
+    const before = computeSnapshotMetrics(db);
+    db.insert(accounts).values({
+      name: 'Closed Bank', type: 'bank' as any, balance_cents: 999999,
+      is_active: false as any, created_at: now, updated_at: now,
+    }).run();
+    const after = computeSnapshotMetrics(db);
+    expect(after.liquidCents).toBe(before.liquidCents);
+    expect(after.netWorthCents).toBe(before.netWorthCents);
+  });
 });
 
 describe('server/tasks/daily-snapshot.ts — defineTask contract', () => {

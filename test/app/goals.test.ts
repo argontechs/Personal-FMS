@@ -167,6 +167,19 @@ describe('Goals page', () => {
     expect(w.text()).toContain('Failed to load goals')
   })
 
+  it('streak number aria-label is a real :binding (no raw mustache in the attribute)', async () => {
+    // Regression: the streak number used aria-label="{{ currentStreak }} day streak" — a Vue
+    // mustache INSIDE an attribute renders the literal "{{ currentStreak }}" string at runtime.
+    // It must be a proper :aria-label binding resolving to "3 day streak".
+    const w = mountGoals()
+    await flushPromises()
+    const el = w.find('.streak-card__number')
+    expect(el.exists()).toBe(true)
+    const label = el.attributes('aria-label')
+    expect(label).toBe('3 day streak')
+    expect(label).not.toContain('{{') // the interpolation must be resolved, not literal
+  })
+
   it('exposes a Trends link reaching /trends (not a 6th bottom tab)', async () => {
     const { navigateTo } = await import('#app')
     const w = mountGoals()

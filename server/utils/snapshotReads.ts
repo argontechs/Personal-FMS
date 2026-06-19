@@ -11,7 +11,7 @@
 //   - net_worth    = liquid + holdings − total_debt (accounts.vue netCents).
 //
 // Pure reads — never mutate. `db` is typed loose so tests can inject an in-memory instance.
-import { inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { accounts, debts, holdings } from '../db/schema'
 import { readCard, readEFBalance } from './debtReads'
 
@@ -26,16 +26,20 @@ export interface SnapshotMetrics {
 }
 
 /**
- * Sum of balance_cents for the non-card asset accounts: cash, bank, ewallet, savings.
- * Matches accounts.vue's `liquidCents` (assetAccounts excludes card). NOTE: this is a
- * SUPERSET of forecastReads.cashNowCents — it additionally includes the savings (EF) account,
- * because the EF balance IS part of net worth even though it is ring-fenced from safe-to-spend.
+ * Sum of balance_cents for the ACTIVE non-card asset accounts: cash, bank, ewallet, savings.
+ * Matches accounts.vue's `liquidCents` (assetAccounts = type !== 'card' && is_active !== false), so
+ * snapshot net worth tracks the Accounts screen — inactive accounts are excluded from both. NOTE:
+ * this is a SUPERSET of forecastReads.cashNowCents — it additionally includes the savings (EF)
+ * account, because the EF balance IS part of net worth even though it is ring-fenced from STS.
  */
 export function liquidAccountsCents(db: DB): number {
   const row = db
     .select({ total: sql<number>`COALESCE(SUM(${accounts.balance_cents}), 0)` })
     .from(accounts)
-    .where(inArray(accounts.type, ['cash', 'bank', 'ewallet', 'savings']))
+    .where(and(
+      inArray(accounts.type, ['cash', 'bank', 'ewallet', 'savings']),
+      eq(accounts.is_active, true),
+    ))
     .get()
   return Number(row?.total ?? 0)
 }

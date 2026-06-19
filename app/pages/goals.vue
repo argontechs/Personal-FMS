@@ -59,7 +59,7 @@ const PROGRESS_MILESTONE_KEYS = new Set(['streak-7', 'streak-30', 'ef-1000', 'ef
 
           <!-- Streak number -->
           <div class="streak-card__body">
-            <div class="streak-card__number tabnum" aria-label="{{ currentStreak }} day streak">
+            <div class="streak-card__number tabnum" :aria-label="`${currentStreak} day streak`">
               {{ currentStreak }}
             </div>
             <div class="streak-card__label">
