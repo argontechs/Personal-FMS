@@ -734,22 +734,29 @@ async function retry() {
 
 <style scoped>
 .accts-page {
-  padding: 16px;
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 20px var(--gutter) 88px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-gap);
 }
 
 .accts-page__title {
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text);
-  margin: 0 0 16px;
+  letter-spacing: -0.02em;
+  margin: 0 0 4px;
   letter-spacing: -0.01em;
 }
 
 /* ── Section headings ── */
 .accts-section-heading {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
   color: var(--text);
+  letter-spacing: -0.015em;
   margin: 0 0 12px;
 }
 
@@ -821,7 +828,7 @@ async function retry() {
 
 /* ── Net position ── */
 .accts-net {
-  margin-bottom: 20px;
+  margin-bottom: 0;
 }
 
 .accts-net__row {
@@ -982,10 +989,9 @@ async function retry() {
 
 .accts-holdings__subtotal-label {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: .04em;
+  letter-spacing: 0.005em;
 }
 
 .accts-holdings__subtotal-value {

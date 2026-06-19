@@ -175,20 +175,20 @@ async function discardDeadLetters() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 52px;
-  padding: 0 16px;
-  background: var(--surface);
+  height: 54px;
+  padding: 0 var(--gutter);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  backdrop-filter: saturate(140%) blur(12px);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
   border-bottom: 1px solid var(--border);
-  /* subtle elevation so content scrolls under it */
-  box-shadow: 0 1px 0 var(--border), 0 2px 8px rgba(15,23,42,.04);
   padding-top: env(safe-area-inset-top, 0px);
 }
 
 .app-header__name {
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
 }
 
 .app-header__actions {
@@ -326,7 +326,33 @@ async function discardDeadLetters() {
 /* ── Page content ─────────────────────────────────────────── */
 .app-content {
   flex: 1;
-  /* bottom padding: 56px nav + safe-area + small buffer */
-  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  /* bottom padding: nav height + safe-area + comfortable buffer (optically ≥ top) */
+  padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ── Desktop app-frame ────────────────────────────────────────
+   On wide screens, float a phone-width column inside a subtle elevated frame
+   over an ambient gradient backdrop — so desktop reads as intentional, not
+   an empty void. Mobile single-column is untouched (frame only ≥ 760px). */
+@media (min-width: 760px) {
+  .app-shell {
+    max-width: 460px;
+    margin: 24px auto;
+    min-height: calc(100dvh - 48px);
+    border-radius: 28px;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    background: var(--surface);
+  }
+  /* Ambient backdrop behind the frame */
+  body {
+    background:
+      radial-gradient(120% 80% at 50% -10%, color-mix(in srgb, var(--primary) 10%, var(--bg)) 0%, var(--bg) 55%),
+      var(--bg);
+  }
+  .app-header {
+    border-radius: 28px 28px 0 0;
+  }
 }
 </style>

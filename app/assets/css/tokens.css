@@ -1,42 +1,66 @@
-/* Personal FMS — Design System tokens (v1.1)
+/* Personal FMS — Design System tokens (v2)
    Single source of truth. No hex in components — use these variables only.
    Imported globally via nuxt.config.ts css[]. */
 
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+/* Geist — characterful modern grotesque sans. font-display:swap so text paints
+   instantly against the system fallback, then upgrades. */
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap');
 
 :root {
   /* ── Color ─────────────────────────────────────────────── */
-  --bg:            #F5F7FB;
+  --bg:            #F4F6FB;
   --surface:       #FFFFFF;
-  --surface-2:     #F0F3F9;
-  --border:        #E2E8F0;
-  --text:          #0F172A;
-  --text-muted:    #64748B;
-  --primary:       #1E40AF;
-  --primary-700:   #1B3A9B;
+  --surface-2:     #EEF2F9;
+  --border:        #E3E8F0;
+  /* hairline edge highlight — gives cards a crisp 1px lit rim */
+  --edge:          rgba(255, 255, 255, 0.7);
+  --text:          #0E1729;
+  --text-muted:    #647088;
+  /* slightly de-saturated trust-blue — the single accent */
+  --primary:       #2453C4;
+  --primary-700:   #1C44A8;
+  --primary-tint:  rgba(36, 83, 196, 0.08);
   --on-primary:    #FFFFFF;
-  --positive:      #059669;
-  --negative:      #DC2626;
-  --warning:       #D97706;
-  --ring:          #1E40AF;
-  --shadow:        0 1px 2px rgba(15,23,42,.04), 0 4px 16px rgba(15,23,42,.06);
-  --shadow-lg:     0 8px 30px rgba(15,23,42,.10);
+  --positive:      #0E9F6E;
+  --negative:      #DC2F37;
+  --warning:       #C77A0A;
+  --ring:          #2453C4;
+
+  /* Tinted shadows — carry the dark-navy hue, never pure black. */
+  --shadow-color:  220 45% 16%;
+  --shadow:        0 1px 2px hsl(var(--shadow-color) / 0.05),
+                   0 4px 14px hsl(var(--shadow-color) / 0.07);
+  --shadow-md:     0 2px 6px hsl(var(--shadow-color) / 0.06),
+                   0 10px 28px hsl(var(--shadow-color) / 0.10);
+  --shadow-lg:     0 8px 36px hsl(var(--shadow-color) / 0.16);
+  --shadow-hero:   0 2px 8px hsl(var(--shadow-color) / 0.06),
+                   0 14px 40px hsl(var(--shadow-color) / 0.12);
 
   /* ── Typography ─────────────────────────────────────────── */
-  --font-base:     'IBM Plex Sans', -apple-system, system-ui, sans-serif;
+  --font-base:     'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
 
-  /* ── Spacing ─────────────────────────────────────────────── */
+  /* ── Spacing scale (4px base) ───────────────────────────── */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
+  --space-7: 28px;
   --space-8: 32px;
+  --space-10: 40px;
+
+  /* Vertical rhythm tiers (re-used across screens) */
+  --gutter:       18px;  /* comfortable screen edge inset */
+  --section-gap:  26px;  /* between major sections */
+  --stack-gap:    14px;  /* between cards within a stack */
+  --label-gap:    12px;  /* label → its content */
+  --card-pad:     22px;  /* generous card padding */
 
   /* ── Radius ──────────────────────────────────────────────── */
-  --radius-card:   16px;
-  --radius-btn:    12px;
+  --radius-card:   20px;
+  --radius-inner:  12px;
+  --radius-btn:    13px;
   --radius-input:  12px;
   --radius-chip:   999px;
   --radius-track:  999px;
@@ -44,21 +68,29 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg:         #0B1220;
-    --surface:    #131C2E;
-    --surface-2:  #1B2638;
+    --bg:         #0A111E;
+    --surface:    #131D30;
+    --surface-2:  #1B2740;
     --border:     rgba(255,255,255,.08);
+    --edge:       rgba(255, 255, 255, 0.06);
     --text:       #F1F5F9;
-    --text-muted: #94A3B8;
-    --primary:    #3B82F6;
-    --primary-700:#2563EB;
-    --on-primary: #0B1220;
+    --text-muted: #93A1B8;
+    --primary:    #5B8DF0;
+    --primary-700:#3F73DC;
+    --primary-tint: rgba(91, 141, 240, 0.14);
+    --on-primary: #0A111E;
     --positive:   #34D399;
     --negative:   #F87171;
     --warning:    #FBBF24;
-    --ring:       #3B82F6;
-    --shadow:     0 1px 2px rgba(0,0,0,.3);
-    --shadow-lg:  0 8px 30px rgba(0,0,0,.45);
+    --ring:       #5B8DF0;
+    --shadow-color: 222 60% 4%;
+    --shadow:     0 1px 2px hsl(var(--shadow-color) / 0.4),
+                  0 4px 14px hsl(var(--shadow-color) / 0.45);
+    --shadow-md:  0 2px 6px hsl(var(--shadow-color) / 0.4),
+                  0 10px 28px hsl(var(--shadow-color) / 0.5);
+    --shadow-lg:  0 8px 36px hsl(var(--shadow-color) / 0.6);
+    --shadow-hero: 0 2px 8px hsl(var(--shadow-color) / 0.4),
+                   0 14px 40px hsl(var(--shadow-color) / 0.5);
   }
 }
 
@@ -73,6 +105,9 @@ html {
   -webkit-text-size-adjust: 100%;
   background: var(--bg);
   color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body {
@@ -83,22 +118,25 @@ body {
 
 /* ── Utility classes ─────────────────────────────────────── */
 
-/* Card */
+/* Card — softer radius, tinted shadow, hairline lit edge for definition */
 .card {
   background: var(--surface);
   border-radius: var(--radius-card);
+  border: 1px solid var(--border);
   box-shadow: var(--shadow);
-  padding: 20px;
+  padding: var(--card-pad);
 }
 
-/* Section label */
+/* Section label — quiet, refined, sentence-case-friendly.
+   Lower-emphasis weight + color; gentle tracking, NOT shouty all-caps. */
 .section-label {
-  font-size: 13px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .04em;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0.005em;
   color: var(--text-muted);
-  margin: 0 0 12px;
+  margin: 0 0 var(--label-gap);
+  padding-left: 2px;
 }
 
 /* Button primary */
@@ -116,13 +154,16 @@ body {
   font-family: var(--font-base);
   font-size: 16px;
   font-weight: 600;
+  letter-spacing: -0.005em;
   cursor: pointer;
-  transition: background 150ms ease-out, transform 150ms ease-out, opacity 150ms ease-out;
+  transition: background 200ms ease-out, transform 200ms cubic-bezier(.34,1.56,.64,1), box-shadow 200ms ease-out, opacity 200ms ease-out;
+  box-shadow: 0 1px 2px hsl(var(--shadow-color) / 0.12);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
 .btn-primary:hover:not(:disabled) {
   background: var(--primary-700);
+  box-shadow: var(--shadow-md);
 }
 .btn-primary:active:not(:disabled) {
   transform: scale(0.97);
@@ -145,19 +186,20 @@ body {
   min-height: 48px;
   padding: 0 20px;
   border: 1.5px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-btn);
   background: var(--surface);
   color: var(--text);
   font-family: var(--font-base);
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 150ms ease-out, transform 150ms ease-out, opacity 150ms ease-out;
+  transition: background 200ms ease-out, transform 200ms cubic-bezier(.34,1.56,.64,1), border-color 200ms ease-out, opacity 200ms ease-out;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
 .btn-secondary:hover:not(:disabled) {
   background: var(--surface-2);
+  border-color: var(--text-muted);
 }
 .btn-secondary:active:not(:disabled) {
   transform: scale(0.97);
@@ -183,12 +225,12 @@ body {
   color: var(--text);
   font-family: var(--font-base);
   font-size: 16px; /* ≥16px prevents iOS zoom */
-  transition: border-color 150ms ease-out;
+  transition: border-color 180ms ease-out, box-shadow 180ms ease-out;
 }
 .input:focus {
   outline: none;
   border-color: var(--ring);
-  box-shadow: 0 0 0 3px rgba(30,64,175,.15);
+  box-shadow: 0 0 0 3px var(--primary-tint);
 }
 .input:disabled {
   background: var(--surface-2);
@@ -206,19 +248,19 @@ body {
   font-weight: 600;
 }
 .badge--amber {
-  background: rgba(217,119,6,.12);
+  background: rgba(199,122,10,.12);
   color: var(--warning);
 }
 .badge--green {
-  background: rgba(5,150,105,.12);
+  background: rgba(14,159,110,.12);
   color: var(--positive);
 }
 .badge--red {
-  background: rgba(220,38,38,.10);
+  background: rgba(220,47,55,.10);
   color: var(--negative);
 }
 .badge--blue {
-  background: rgba(30,64,175,.10);
+  background: var(--primary-tint);
   color: var(--primary);
 }
 
@@ -232,7 +274,7 @@ body {
 .progress-fill {
   height: 100%;
   border-radius: var(--radius-track);
-  transition: width 400ms ease-out;
+  transition: width 500ms cubic-bezier(.4,0,.2,1);
   min-width: 3px;
 }
 .progress-fill--savings {
@@ -247,10 +289,45 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Reduced motion */
+/* ── Staggered card entry ─────────────────────────────────── */
+/* Sections/cards fade + rise on mount. Stagger is applied per-screen via
+   nth-child delays so the dashboard cascades in. Transform/opacity only. */
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.dashboard > *,
+.goals-page > section,
+.bills-page > section {
+  animation: card-enter 420ms cubic-bezier(.16,1,.3,1) both;
+}
+.dashboard > *:nth-child(1),
+.goals-page > section:nth-child(1),
+.bills-page > section:nth-child(1) { animation-delay: 0ms; }
+.dashboard > *:nth-child(2),
+.goals-page > section:nth-child(2),
+.bills-page > section:nth-child(2) { animation-delay: 40ms; }
+.dashboard > *:nth-child(3),
+.goals-page > section:nth-child(3),
+.bills-page > section:nth-child(3) { animation-delay: 80ms; }
+.dashboard > *:nth-child(4) { animation-delay: 120ms; }
+.dashboard > *:nth-child(5) { animation-delay: 160ms; }
+.dashboard > *:nth-child(6) { animation-delay: 200ms; }
+.dashboard > *:nth-child(7) { animation-delay: 240ms; }
+
+/* Reduced motion — kill all transitions + animations, transform/opacity included */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     transition-duration: 0ms !important;
     animation-duration: 0ms !important;
+    animation-delay: 0ms !important;
+  }
+  .dashboard > *,
+  .goals-page > section,
+  .bills-page > section {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
 }

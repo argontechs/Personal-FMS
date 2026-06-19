@@ -529,12 +529,12 @@ const showRemindersOn = computed(
 
 <style scoped>
 .dashboard {
-  max-width: 480px;
+  max-width: 460px;
   margin: 0 auto;
-  padding: 16px 16px 0;
+  padding: 20px var(--gutter) 8px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--section-gap);
 }
 
 /* Shimmer skeleton while STS loads */
@@ -553,13 +553,13 @@ const showRemindersOn = computed(
 .dashboard__section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--label-gap);
 }
 
 .dashboard__goal-stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--stack-gap);
 }
 
 /* QuickLog sits inside a card with no extra padding — QuickLog has its own padding */

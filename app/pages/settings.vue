@@ -348,22 +348,22 @@ async function handleLogout() {
 
 <style scoped>
 .settings-page {
-  padding: 16px;
-  max-width: 560px;
+  max-width: 460px;
   margin: 0 auto;
+  padding: 20px var(--gutter) 88px;
 }
 
 .settings-page__title {
   font-size: 24px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
   margin: 0 0 24px;
 }
 
 /* ── Sections ─────────────────────────────────────────────── */
 .settings-section {
-  margin-bottom: 24px;
+  margin-bottom: var(--section-gap);
 }
 
 /* ── Card meta lines ──────────────────────────────────────── */

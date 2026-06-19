@@ -472,16 +472,17 @@ function setMode(m: Mode) {
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  transition: background 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out, transform 150ms ease-out;
+  transition: background 200ms ease-out, color 200ms ease-out, border-color 200ms ease-out, transform 200ms cubic-bezier(.34,1.56,.64,1);
 }
 
 .chip:hover:not(:disabled) {
   border-color: var(--primary);
   color: var(--primary);
+  background: var(--surface);
 }
 
 .chip:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.95);
   background: var(--primary);
   color: var(--on-primary);
   border-color: var(--primary);
@@ -513,10 +514,9 @@ function setMode(m: Mode) {
 
 .quicklog__field-label {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.005em;
 }
 
 .quicklog__select {

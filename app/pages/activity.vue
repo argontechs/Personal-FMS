@@ -541,9 +541,9 @@ async function saveEdit() {
 <style scoped>
 /* ── Layout ──────────────────────────────────────────────────────────── */
 .activity {
-  max-width: 480px;
+  max-width: 460px;
   margin: 0 auto;
-  padding: 16px 16px 80px;
+  padding: 20px var(--gutter) 88px;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -860,10 +860,9 @@ async function saveEdit() {
 
 .edit-sheet__label {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.005em;
   margin: 0;
 }
 

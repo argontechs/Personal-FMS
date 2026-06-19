@@ -12,7 +12,9 @@ import RecurringRow from '~/components/RecurringRow.vue'
 const VALID_CADENCES = ['monthly', 'weekly', 'biweekly', 'yearly'] as const
 type Cadence = typeof VALID_CADENCES[number]
 
-const VALID_CATEGORIES = ['food', 'transport', 'car', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'] as const
+// Spend categories mirror shared/categories.ts (food, transport, car, fuel, groceries,
+// shopping, bills, other); the trailing system categories (debt…adjustment) are bills-only.
+const VALID_CATEGORIES = ['food', 'transport', 'car', 'fuel', 'groceries', 'shopping', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'] as const
 type Category = typeof VALID_CATEGORIES[number]
 
 const VALID_DIRECTIONS = ['income', 'expense'] as const
@@ -966,12 +968,12 @@ async function submitFlip() {
 <style scoped>
 /* ─── Page ───────────────────────────────────────────────────────────────────── */
 .bills-page {
-  max-width: 480px;
+  max-width: 460px;
   margin: 0 auto;
-  padding: 16px 16px 40px;
+  padding: 20px var(--gutter) 88px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--section-gap);
 }
 
 .bills-page__header {
@@ -982,8 +984,9 @@ async function submitFlip() {
 
 .bills-page__title {
   font-size: 20px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text);
+  letter-spacing: -0.02em;
   margin: 0;
 }
 

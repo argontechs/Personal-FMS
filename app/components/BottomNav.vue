@@ -88,36 +88,61 @@ const active = computed(() => route.path)
   z-index: 100;
   display: flex;
   align-items: stretch;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: saturate(140%) blur(12px);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
   border-top: 1px solid var(--border);
-  box-shadow: 0 -1px 0 var(--border), 0 -4px 16px rgba(15,23,42,.06);
+  box-shadow: 0 -1px 0 var(--border), 0 -6px 20px hsl(var(--shadow-color) / 0.06);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .bottom-nav__tab {
   flex: 1;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  min-height: 56px;
-  padding: 8px 4px;
+  gap: 4px;
+  min-height: 58px;
+  padding: 9px 4px;
   color: var(--text-muted);
   text-decoration: none;
-  transition: color 150ms ease-out;
+  transition: color 200ms ease-out, transform 200ms cubic-bezier(.34,1.56,.64,1);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+}
+
+.bottom-nav__tab:active {
+  transform: scale(0.93);
 }
 
 .bottom-nav__tab--active {
   color: var(--primary);
 }
 
+/* Active indicator pill above the icon — clearly distinct active tab */
+.bottom-nav__tab--active::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  width: 26px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.bottom-nav__tab:hover {
+  color: var(--text);
+}
+.bottom-nav__tab--active:hover {
+  color: var(--primary);
+}
+
 .bottom-nav__tab:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
-  border-radius: 8px;
+  border-radius: 10px;
 }
 
 .bottom-nav__label {
@@ -125,5 +150,19 @@ const active = computed(() => route.path)
   font-weight: 600;
   letter-spacing: .01em;
   line-height: 1;
+}
+
+/* Desktop: pin the nav inside the floating app-frame, not the full viewport */
+@media (min-width: 760px) {
+  .bottom-nav {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: 460px;
+    bottom: 24px;
+    border-radius: 0 0 28px 28px;
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
 }
 </style>

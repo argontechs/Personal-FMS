@@ -40,28 +40,28 @@ const untilLabel = computed(() => {
 <style scoped>
 .sts-hero {
   text-align: center;
-  padding: 28px 20px 24px;
-  /* Slight gradient background for premium feel — stays within token surface */
-  background: linear-gradient(160deg, var(--surface) 0%, color-mix(in srgb, var(--primary) 4%, var(--surface)) 100%);
+  padding: 32px 24px 28px;
+  /* Faint blue-tinted gradient + elevated tinted shadow for hero presence */
+  background:
+    radial-gradient(140% 110% at 50% -20%, color-mix(in srgb, var(--primary) 9%, var(--surface)) 0%, var(--surface) 62%);
+  box-shadow: var(--shadow-hero);
 }
 
 .sts-hero__until {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--text-muted);
-  margin: 0 0 8px;
-  letter-spacing: .01em;
-  text-transform: uppercase;
-  letter-spacing: .06em;
+  margin: 0 0 10px;
+  letter-spacing: 0.005em;
 }
 
 .sts-hero__amount {
-  font-size: clamp(40px, 12vw, 56px);
+  font-size: clamp(44px, 13vw, 60px);
   font-weight: 700;
   color: var(--text);
-  margin: 0 0 16px;
-  line-height: 1.05;
-  letter-spacing: -0.02em;
+  margin: 0 0 18px;
+  line-height: 1.0;
+  letter-spacing: -0.03em;
 }
 
 .sts-hero__amount--negative {
@@ -91,7 +91,7 @@ const untilLabel = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  background: var(--surface-2);
+  background: var(--primary-tint);
   color: var(--primary);
   border-radius: var(--radius-chip);
   padding: 8px 16px;

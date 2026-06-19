@@ -144,12 +144,12 @@ const PROGRESS_MILESTONE_KEYS = new Set(['streak-7', 'streak-30', 'ef-1000', 'ef
 
 <style scoped>
 .goals-page {
-  max-width: 480px;
+  max-width: 460px;
   margin: 0 auto;
-  padding: 16px 16px 80px;
+  padding: 20px var(--gutter) 88px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--section-gap);
 }
 
 /* ── Skeletons ── */
@@ -182,7 +182,7 @@ const PROGRESS_MILESTONE_KEYS = new Set(['streak-7', 'streak-30', 'ef-1000', 'ef
 .goals-page__section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--label-gap);
 }
 
 /* ── Streak Card ── */

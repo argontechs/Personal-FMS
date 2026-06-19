@@ -161,16 +161,15 @@ const REC_COPY: Record<DebtView['btRecommendation'], string> = {
 
 .card-debt__label {
   font-size: 13px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .04em;
+  font-weight: 500;
+  letter-spacing: 0.005em;
   color: var(--text-muted);
 }
 
 .card-debt__balance {
   font-size: 28px;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   color: var(--text);
 }
 
