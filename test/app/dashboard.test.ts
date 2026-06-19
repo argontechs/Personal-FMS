@@ -1,6 +1,6 @@
 // test/app/dashboard.test.ts
 // Dashboard page integration test — mocks the three API endpoints and asserts all sections render.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { defineComponent, h, Suspense, ref } from 'vue'
 
@@ -31,20 +31,40 @@ const mockGoals = {
   killCard: { currentCents: 740076, baselineCents: 800000, progress: 0.075 },
 }
 
-const mockAccounts = [{ id: 7, type: 'cash', balance_cents: 100000 }]
+const mockAccounts = [
+  { id: 7, type: 'cash', balance_cents: 100000 },
+  { id: 3, type: 'checking', balance_cents: 200000 },
+  { id: 5, type: 'savings', balance_cents: 45000 },
+]
 
 // Active forecast override — set per-test to swap the /api/forecast response.
 let activeForecast: typeof mockForecast = mockForecast
+let activeGoals: typeof mockGoals = mockGoals
+let activeAccounts: typeof mockAccounts = mockAccounts
+
+// refreshForecast and refreshGoals spies — captured per mount so tests can check calls.
+let lastRefreshForecast: ReturnType<typeof vi.fn>
+let lastRefreshGoals: ReturnType<typeof vi.fn>
+let forecastError: any = null
+let goalsError: any = null
 
 // ─── useFetch mock (must be defined before page import) ──────────────────────
 // Returns { data: Ref<T> } matching Nuxt's runtime contract so templates auto-unwrap refs.
 vi.mock('#app', () => ({
   useFetch: vi.fn(async (url: string) => {
-    if (url === '/api/forecast') return { data: ref(activeForecast), refresh: vi.fn() }
-    if (url === '/api/debt')     return { data: ref(mockDebt), refresh: vi.fn() }
-    if (url === '/api/goals/progress') return { data: ref(mockGoals), refresh: vi.fn() }
-    if (url === '/api/accounts') return { data: ref(mockAccounts), refresh: vi.fn() }
-    return { data: ref(null), refresh: vi.fn() }
+    if (url === '/api/forecast') {
+      const refresh = vi.fn(async () => {})
+      lastRefreshForecast = refresh
+      return { data: ref(activeForecast), refresh, error: ref(forecastError) }
+    }
+    if (url === '/api/debt')     return { data: ref(mockDebt), refresh: vi.fn(), error: ref(null) }
+    if (url === '/api/goals/progress') {
+      const refresh = vi.fn(async () => {})
+      lastRefreshGoals = refresh
+      return { data: ref(activeGoals), refresh, error: ref(goalsError) }
+    }
+    if (url === '/api/accounts') return { data: ref(activeAccounts), refresh: vi.fn(), error: ref(null) }
+    return { data: ref(null), refresh: vi.fn(), error: ref(null) }
   }),
   useRuntimeConfig: vi.fn(() => ({ public: {} })),
   navigateTo: vi.fn(),
@@ -65,17 +85,50 @@ vi.mock('../../app/composables/useOfflineQueue', () => ({
 // Import AFTER mocks (Vitest hoists vi.mock)
 import DashboardPage from '../../app/pages/index.vue'
 
-// ─── Helper: mount inside <Suspense> (required for async setup components) ───
+// ─── Helper: mount inside <Suspense> attached to document.body ────────────────
+// attachTo ensures Teleport can render to body and we can querySelector on document.body.
+let mountedWrappers: ReturnType<typeof mount>[] = []
+
 function mountDashboard() {
-  return mount(
+  const div = document.createElement('div')
+  document.body.appendChild(div)
+  const w = mount(
     defineComponent({
       render() { return h(Suspense, null, { default: () => h(DashboardPage) }) },
     }),
+    { attachTo: div },
   )
+  mountedWrappers.push(w)
+  return w
+}
+
+// Helper: find teleported dialog in document.body
+function findSheet() {
+  return document.body.querySelector('[role="dialog"]') as HTMLElement | null
+}
+
+function findInSheet(selector: string) {
+  const dialog = findSheet()
+  return dialog ? dialog.querySelector(selector) as HTMLElement | null : null
 }
 
 beforeEach(() => {
   activeForecast = mockForecast
+  activeGoals = mockGoals
+  activeAccounts = mockAccounts
+  forecastError = null
+  goalsError = null
+  vi.stubGlobal('$fetch', vi.fn(async () => ({ id: 42 })))
+})
+
+afterEach(() => {
+  // Unmount and detach all wrappers to keep document.body clean between tests
+  for (const w of mountedWrappers) {
+    w.unmount()
+  }
+  mountedWrappers = []
+  // Clean up any leftover teleported nodes
+  document.body.querySelectorAll('[role="dialog"]').forEach(el => el.remove())
 })
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -164,5 +217,267 @@ describe('Dashboard page', () => {
     expect(w.find('[data-test="cat-food"]').exists()).toBe(true)
     expect(w.find('[data-test="cat-transport"]').exists()).toBe(true)
     expect(w.find('[data-test="cat-other"]').exists()).toBe(true)
+  })
+})
+
+// ─── Move-to-EF sheet ─────────────────────────────────────────────────────────
+describe('Move-to-EF action', () => {
+  it('renders "Move to savings" button on the EF goal card', async () => {
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[data-test="move-to-ef"]').exists()).toBe(true)
+    expect(w.find('[data-test="move-to-ef"]').text()).toContain('Move to savings')
+  })
+
+  it('clicking "Move to savings" opens the bottom sheet', async () => {
+    const w = mountDashboard()
+    await flushPromises()
+    expect(findSheet()).toBeNull()
+    await w.find('[data-test="move-to-ef"]').trigger('click')
+    await flushPromises()
+    expect(findSheet()).not.toBeNull()
+    expect(findSheet()!.textContent).toContain('Emergency Fund')
+  })
+
+  it('sheet is pre-filled with suggested amount (remaining-to-target)', async () => {
+    // Suggested = targetCents - currentCents = 100000 - 45000 = 55000 → RM550.00
+    const w = mountDashboard()
+    await flushPromises()
+    await w.find('[data-test="move-to-ef"]').trigger('click')
+    await flushPromises()
+    const input = findInSheet('#ef-amount') as HTMLInputElement
+    expect(input).not.toBeNull()
+    expect(input.value).toBe('550.00')
+  })
+
+  it('confirming the sheet POSTs /api/transfers with the correct legs', async () => {
+    const mockFetch = vi.fn(async () => ({ id: 42 }))
+    vi.stubGlobal('$fetch', mockFetch)
+
+    const w = mountDashboard()
+    await flushPromises()
+    await w.find('[data-test="move-to-ef"]').trigger('click')
+    await flushPromises()
+
+    const input = findInSheet('#ef-amount') as HTMLInputElement
+    // set value and dispatch input event so Vue's v-model picks it up
+    input.value = '100.00'
+    input.dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    const confirmBtn = findInSheet('.sheet__confirm') as HTMLButtonElement
+    confirmBtn.click()
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/transfers', expect.objectContaining({
+      method: 'POST',
+      body: expect.objectContaining({
+        amount_cents: 10000,
+        from_account_id: 3,        // checking account
+        to_account_id: 5,          // savings (EF) account
+        note: 'Emergency fund',
+        source: 'manual',
+      }),
+    }))
+  })
+
+  it('after successful transfer, refreshForecast and refreshGoals are called', async () => {
+    vi.stubGlobal('$fetch', vi.fn(async () => ({ id: 1 })))
+
+    const w = mountDashboard()
+    await flushPromises()
+    await w.find('[data-test="move-to-ef"]').trigger('click')
+    await flushPromises()
+
+    const input = findInSheet('#ef-amount') as HTMLInputElement
+    input.value = '50.00'
+    input.dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    const confirmBtn = findInSheet('.sheet__confirm') as HTMLButtonElement
+    confirmBtn.click()
+    await flushPromises()
+
+    expect(lastRefreshForecast).toHaveBeenCalled()
+    expect(lastRefreshGoals).toHaveBeenCalled()
+  })
+
+  it('shows an error when amount exceeds available cash', async () => {
+    const w = mountDashboard()
+    await flushPromises()
+    await w.find('[data-test="move-to-ef"]').trigger('click')
+    await flushPromises()
+    // cashNowCents = 100000 = RM1000; enter RM1001
+    const input = findInSheet('#ef-amount') as HTMLInputElement
+    input.value = '1001.00'
+    input.dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    const confirmBtn = findInSheet('.sheet__confirm') as HTMLButtonElement
+    confirmBtn.click()
+    await flushPromises()
+
+    const errorEl = findInSheet('.sheet__error') as HTMLElement
+    expect(errorEl).not.toBeNull()
+    expect(errorEl.textContent).toContain('exceeds available cash')
+  })
+
+  it('shows an error for a zero or blank amount', async () => {
+    const w = mountDashboard()
+    await flushPromises()
+    await w.find('[data-test="move-to-ef"]').trigger('click')
+    await flushPromises()
+
+    // Clear the pre-filled value
+    const input = findInSheet('#ef-amount') as HTMLInputElement
+    input.value = ''
+    input.dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    const confirmBtn = findInSheet('.sheet__confirm') as HTMLButtonElement
+    confirmBtn.click()
+    await flushPromises()
+
+    const errorEl = findInSheet('.sheet__error') as HTMLElement
+    expect(errorEl).not.toBeNull()
+    expect(errorEl.textContent).toContain('valid amount')
+  })
+
+  it('closing the sheet hides the dialog', async () => {
+    const w = mountDashboard()
+    await flushPromises()
+    await w.find('[data-test="move-to-ef"]').trigger('click')
+    await flushPromises()
+    expect(findSheet()).not.toBeNull()
+
+    const closeBtn = findInSheet('.sheet__close') as HTMLButtonElement
+    closeBtn.click()
+    await flushPromises()
+    expect(findSheet()).toBeNull()
+  })
+})
+
+// ─── Payday prompt ────────────────────────────────────────────────────────────
+describe('Payday prompt', () => {
+  it('shows the payday prompt when income has landed and EF target not met', async () => {
+    // mockForecast has incomeCents=641950 > 0; mockGoals has ef.progress=0.45 < 1
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[data-test="payday-prompt"]').exists()).toBe(true)
+    expect(w.text()).toContain('RM6,419.50')          // paydayIncomeCents
+    expect(w.text()).toContain('RM550.00')             // suggestedSavings (55000 sen)
+  })
+
+  it('does not show the payday prompt when income is 0', async () => {
+    activeForecast = {
+      ...mockForecast,
+      rollup: { ...mockForecast.rollup, incomeCents: 0 },
+    }
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[data-test="payday-prompt"]').exists()).toBe(false)
+  })
+
+  it('does not show the payday prompt when EF target is already met', async () => {
+    activeGoals = {
+      ...mockGoals,
+      ef: { currentCents: 100000, targetCents: 100000, progress: 1 },
+    }
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[data-test="payday-prompt"]').exists()).toBe(false)
+  })
+
+  it('Skip dismisses the payday prompt', async () => {
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[data-test="payday-prompt"]').exists()).toBe(true)
+    const skipBtn = w.find('[data-test="payday-prompt"]').find('button[aria-label*="Skip"]')
+    await skipBtn.trigger('click')
+    await flushPromises()
+    expect(w.find('[data-test="payday-prompt"]').exists()).toBe(false)
+  })
+
+  it('Move button opens the sheet prefilled with suggested amount', async () => {
+    const w = mountDashboard()
+    await flushPromises()
+    const moveBtn = w.find('[data-test="payday-prompt"]').find('button[aria-label*="Move"]')
+    await moveBtn.trigger('click')
+    await flushPromises()
+    expect(findSheet()).not.toBeNull()
+    const input = findInSheet('#ef-amount') as HTMLInputElement
+    expect(input.value).toBe('550.00')
+  })
+
+  it('Adjust button opens the sheet with suggested amount (editable)', async () => {
+    const w = mountDashboard()
+    await flushPromises()
+    const adjustBtn = w.find('[data-test="payday-prompt"]').find('button[aria-label*="Adjust"]')
+    await adjustBtn.trigger('click')
+    await flushPromises()
+    expect(findSheet()).not.toBeNull()
+  })
+
+  it('payday prompt hides after a successful transfer via Move-to-EF button', async () => {
+    vi.stubGlobal('$fetch', vi.fn(async () => ({ id: 99 })))
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[data-test="payday-prompt"]').exists()).toBe(true)
+
+    // Open sheet via the EF card button, enter amount, confirm
+    await w.find('[data-test="move-to-ef"]').trigger('click')
+    await flushPromises()
+
+    const input = findInSheet('#ef-amount') as HTMLInputElement
+    input.value = '50.00'
+    input.dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    const confirmBtn = findInSheet('.sheet__confirm') as HTMLButtonElement
+    confirmBtn.click()
+    await flushPromises()
+
+    expect(w.find('[data-test="payday-prompt"]').exists()).toBe(false)
+  })
+})
+
+// ─── Dashboard error state ────────────────────────────────────────────────────
+describe('Dashboard error state', () => {
+  it('shows an error card with Retry button when the forecast fetch errors', async () => {
+    forecastError = new Error('Network error')
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[role="alert"]').exists()).toBe(true)
+    expect(w.text()).toContain("couldn't be loaded")
+    expect(w.text()).toContain('Retry')
+  })
+
+  it('does not show RM0 hero when dashboard has a fetch error', async () => {
+    forecastError = new Error('500')
+    const w = mountDashboard()
+    await flushPromises()
+    // The STS hero should not be present
+    expect(w.find('[data-testid="sts-hero"]').exists()).toBe(false)
+  })
+
+  it('clicking Retry calls refreshForecast and refreshGoals', async () => {
+    forecastError = new Error('fetch failed')
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[role="alert"]').exists()).toBe(true)
+
+    await w.find('[role="alert"] .btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(lastRefreshForecast).toHaveBeenCalled()
+    expect(lastRefreshGoals).toHaveBeenCalled()
+  })
+
+  it('normal content is NOT shown when there is a dashboard error', async () => {
+    forecastError = new Error('error')
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[data-test="move-to-ef"]').exists()).toBe(false)
+    expect(w.find('[data-test="payday-prompt"]').exists()).toBe(false)
   })
 })
