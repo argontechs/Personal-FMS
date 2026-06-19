@@ -74,19 +74,52 @@ describe('seedDatabase — real 2026-06-18 data', () => {
     expect(sp.due_day).toBe(10)
   })
 
-  // B3 correction: SPayLater recurring template is seeded → 17 templates total (not 16)
-  it('seeds 17 recurring templates with the ILP PAUSED (auto_post false, not bank-flipped)', () => {
+  // v2 correction: GE ILP is ACTIVE (still paying RM350/mo); the RM82 Subscriptions
+  // bundle is split into Netflix/Spotify/YouTube on the bank → 17 − 1 + 3 = 19 templates.
+  it('seeds 19 recurring templates with the GE ILP ACTIVE (still paying, card-funded)', () => {
     const rows = handle.db.select().from(recurringItems).all()
-    expect(rows).toHaveLength(17)
+    expect(rows).toHaveLength(19)
+    const allAccounts = handle.db.select().from(accounts).all()
+    const bank = allAccounts.find((a) => a.name === 'Main Bank')!
+    const card = allAccounts.find((a) => a.type === 'card')!
+
+    // GE ILP — still a real outflow until he pauses it: active, card-funded.
     const ilp = rows.find((r) => r.name.includes('ILP'))!
-    expect(ilp.auto_post).toBe(false)
-    expect(ilp.is_active).toBe(false)
+    expect(ilp.is_active).toBe(true)
+    expect(ilp.amount_cents).toBe(35000)
+    expect(ilp.funding_account_id).toBe(card.id)
+
+    // Unifi due day corrected to the 10th (was 19); still card-funded.
+    const unifi = rows.find((r) => r.name === 'Unifi')!
+    expect(unifi.day_of_month).toBe(10)
+    expect(unifi.funding_account_id).toBe(card.id)
+
+    // No more bundled "Subscriptions" row.
+    expect(rows.find((r) => r.name === 'Subscriptions')).toBeUndefined()
+
+    // Three split subs, all flipped OFF the card → bank, active, category 'bills'.
+    const netflix = rows.find((r) => r.name === 'Netflix')!
+    expect(netflix.amount_cents).toBe(5000)
+    expect(netflix.day_of_month).toBe(8)
+    expect(netflix.funding_account_id).toBe(bank.id)
+    expect(netflix.is_active).toBe(true)
+    expect(netflix.category).toBe('bills')
+
+    const spotify = rows.find((r) => r.name === 'Spotify')!
+    expect(spotify.amount_cents).toBe(2000)
+    expect(spotify.day_of_month).toBe(2)
+    expect(spotify.funding_account_id).toBe(bank.id)
+
+    const youtube = rows.find((r) => r.name === 'YouTube Premium')!
+    expect(youtube.amount_cents).toBe(1200)
+    expect(youtube.day_of_month).toBe(2)
+    expect(youtube.funding_account_id).toBe(bank.id)
+
     const salary = rows.find((r) => r.name === 'Net Salary')!
     expect(salary.amount_cents).toBe(581950)
     expect(salary.day_of_month).toBe(3)
     expect(salary.direction).toBe('income')
     // Salary routes to Public Bank (not Main Bank)
-    const allAccounts = handle.db.select().from(accounts).all()
     const publicBank = allAccounts.find((a) => a.name === 'Public Bank')!
     expect(salary.funding_account_id).toBe(publicBank.id)
   })
@@ -130,7 +163,7 @@ describe('seedDatabase — real 2026-06-18 data', () => {
     seedDatabase(handle.db)
     expect(handle.db.select().from(accounts).all()).toHaveLength(7)
     expect(handle.db.select().from(debts).all()).toHaveLength(7)
-    expect(handle.db.select().from(recurringItems).all()).toHaveLength(17)
+    expect(handle.db.select().from(recurringItems).all()).toHaveLength(19)
     expect(handle.db.select().from(goals).all()).toHaveLength(2)
   })
 

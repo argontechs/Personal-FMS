@@ -234,8 +234,9 @@ export function seedDatabase(db: Db): void {
   postTransaction({ uuid: 'ob-ryt',   date: SEED_TODAY, amount_cents: 85660,   direction: 'expense', category: 'adjustment', account_id: null, debt_id: rytDebtId,    source: 'adjustment', note: 'Opening balance' }, db)
 
   // -------------------------------------------------------------------------
-  // Recurring templates (17): 3 income + 7 expenses (card) + 7 debt payments
-  // B3: SPayLater template included → 17 total
+  // Recurring templates (19): 3 income + 9 expenses (bills) + 7 debt payments
+  // B3: SPayLater template included.
+  // Subscriptions bundle (RM82, card) split into Netflix/Spotify/YouTube (bank): 17 − 1 + 3 = 19.
   // -------------------------------------------------------------------------
 
   type Tpl = {
@@ -281,7 +282,7 @@ export function seedDatabase(db: Db): void {
       funding: bankId,
     },
 
-    // --- Expenses funded by CARD (6, with ILP paused) ---
+    // --- Expenses (9 bills): GE ILP active (still paying); subs split off-card to bank ---
     {
       name: 'Digi',
       direction: 'expense',
@@ -304,7 +305,7 @@ export function seedDatabase(db: Db): void {
       name: 'Unifi',
       direction: 'expense',
       amount_cents: 15000, // RM150.00
-      day: 19,
+      day: 10, // real due date is the 10th (was 19)
       category: 'bills',
       funding: cardAcctId,
     },
@@ -322,9 +323,8 @@ export function seedDatabase(db: Db): void {
       amount_cents: 35000, // RM350.00
       day: 17,
       category: 'bills',
-      funding: cardAcctId, // card (PAUSED — not bank-flipped; ILP is_active:false)
-      auto_post: false,
-      is_active: false,
+      funding: cardAcctId, // card — STILL PAYING; real RM350/mo outflow until he pauses it
+      is_active: true,
     },
     {
       name: 'Gym',
@@ -334,13 +334,33 @@ export function seedDatabase(db: Db): void {
       category: 'bills',
       funding: cardAcctId,
     },
+    // Subscriptions split into three separate templates, flipped OFF the card → bank
     {
-      name: 'Subscriptions',
+      name: 'Netflix',
       direction: 'expense',
-      amount_cents: 8200, // RM82.00
-      day: 5,
+      amount_cents: 5000, // RM50.00
+      day: 8,
       category: 'bills',
-      funding: cardAcctId,
+      funding: bankId,
+      is_active: true,
+    },
+    {
+      name: 'Spotify',
+      direction: 'expense',
+      amount_cents: 2000, // RM20.00
+      day: 2,
+      category: 'bills',
+      funding: bankId,
+      is_active: true,
+    },
+    {
+      name: 'YouTube Premium',
+      direction: 'expense',
+      amount_cents: 1200, // RM12.00
+      day: 2,
+      category: 'bills',
+      funding: bankId,
+      is_active: true,
     },
 
     // --- Debt payments funded by BANK (7) ---
