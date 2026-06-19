@@ -38,16 +38,25 @@ const mockDebts = [
   { id: 16, name: 'Ryt PayLater',      type: 'flat_loan',    balance_cents: 30000,   rate_type: 'none',     apr_bps: null,  flat_rate_bps: null, due_day: 5,  priority_rank: 7, payoff_baseline_cents: null    },
 ]
 
+/** Holdings (investments/insurance) — manual-value assets */
+const mockHoldings = [
+  { id: 20, name: 'AIA Assurance Account', institution: 'AIA',  kind: 'investment', current_value_cents: 6352297, liquid: 1, note: 'May allow partial withdrawal' },
+  { id: 21, name: 'ASM 3',                 institution: 'ASNB', kind: 'savings',    current_value_cents: 20000,   liquid: 1, note: null },
+]
+
 // ─── Mount helper ──────────────────────────────────────────────────────────────
 let mountedWrappers: ReturnType<typeof mount>[] = []
 
-function mountAccounts(accountsData = mockAccounts, debtsData = mockDebts, opts: { accountsError?: Error; debtsError?: Error } = {}) {
+function mountAccounts(accountsData = mockAccounts, debtsData = mockDebts, opts: { accountsError?: Error; debtsError?: Error; holdingsData?: any[]; holdingsError?: Error } = {}) {
   const impl = (url: string) => {
     if (url === '/api/accounts') {
       return Promise.resolve({ data: ref(accountsData), refresh: vi.fn(), error: ref(opts.accountsError ?? null) })
     }
     if (url === '/api/debts') {
       return Promise.resolve({ data: ref(debtsData), refresh: vi.fn(), error: ref(opts.debtsError ?? null) })
+    }
+    if (url === '/api/holdings') {
+      return Promise.resolve({ data: ref(opts.holdingsData ?? []), refresh: vi.fn(), error: ref(opts.holdingsError ?? null) })
     }
     return Promise.resolve({ data: ref(null), refresh: vi.fn(), error: ref(null) })
   }
@@ -160,10 +169,10 @@ describe('Accounts & Debts page — all 7 debts', () => {
 })
 
 describe('Accounts & Debts page — net position', () => {
-  it('shows a net position section', async () => {
+  it('shows a net worth section', async () => {
     const w = mountAccounts()
     await flushPromises()
-    expect(w.text().toLowerCase()).toContain('net position')
+    expect(w.text().toLowerCase()).toContain('net worth')
   })
 
   it('shows Total assets (excl. card), Total debts, and net', async () => {
@@ -182,11 +191,16 @@ describe('Accounts & Debts page — net position', () => {
     expect(w.text()).toContain('deficit')
   })
 
-  it('shows the partial-net caveat note', async () => {
-    const w = mountAccounts()
+  it('renders holdings and folds them into net worth (old caveat removed)', async () => {
+    const w = mountAccounts(mockAccounts, mockDebts, { holdingsData: mockHoldings })
     await flushPromises()
-    expect(w.text()).toContain("Investment & insurance holdings")
-    expect(w.text()).toContain('AIA')
+    // Holdings render with name + value
+    expect(w.text()).toContain('AIA Assurance Account')
+    expect(w.text()).toContain('RM63,522.97')   // 6352297 sen
+    // Total assets now = liquid 345000 + holdings (6352297 + 20000 = 6372297) = 6717297 → RM67,172.97
+    expect(w.text()).toContain('RM67,172.97')
+    // The obsolete "holdings aren't tracked yet" caveat must be gone
+    expect(w.text()).not.toContain("aren't tracked")
   })
 })
 

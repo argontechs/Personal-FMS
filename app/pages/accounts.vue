@@ -1,9 +1,9 @@
 <!-- app/pages/accounts.vue
      Accounts & Debts overview — all account balances (excl. card account) + all 7 debts in
-     avalanche order (priority_rank) + net position summary at the top.
+     avalanche order (priority_rank) + Holdings/Investments + TRUE net worth summary at the top.
      Card account is shown under Debts only, never double-counted as an asset. -->
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useFetch } from '#app'
 import { formatRM } from '../../shared/types'
 
@@ -15,6 +15,9 @@ const { data: accounts, error: accountsError, refresh: refreshAccounts } =
 
 const { data: allDebts, error: debtsError, refresh: refreshDebts } =
   await useFetch('/api/debts')
+
+const { data: holdingsData, error: holdingsError, refresh: refreshHoldings } =
+  await useFetch('/api/holdings')
 
 // ── Derived values ────────────────────────────────────────────────────────────
 
@@ -32,10 +35,24 @@ const savingsAccounts = computed(() =>
   assetAccounts.value.filter(a => a.type === 'savings')
 )
 
-/** Total assets = sum of spendable + savings (no card) */
-const totalAssetsCents = computed(() =>
+/** Holdings list */
+const holdingsList = computed(() => {
+  if (!holdingsData.value) return []
+  return holdingsData.value as any[]
+})
+
+/** Liquid accounts total (cash, bank, ewallet, savings — excl card) */
+const liquidCents = computed(() =>
   assetAccounts.value.reduce((s: number, a: any) => s + (a.balance_cents ?? 0), 0)
 )
+
+/** Holdings total */
+const holdingsCents = computed(() =>
+  holdingsList.value.reduce((s: number, h: any) => s + (h.current_value_cents ?? 0), 0)
+)
+
+/** Total assets = liquid accounts + holdings */
+const totalAssetsCents = computed(() => liquidCents.value + holdingsCents.value)
 
 /** Total debts = sum of all debt balances */
 const totalDebtsCents = computed(() => {
@@ -84,12 +101,108 @@ function accountIconType(type: string): string {
   return type
 }
 
+// ── Holdings kind badge color ─────────────────────────────────────────────────
+function holdingKindClass(kind: string): string {
+  if (kind === 'investment') return 'badge--blue'
+  if (kind === 'insurance') return 'badge--purple'
+  if (kind === 'savings') return 'badge--green'
+  return ''
+}
+
+// ── Holdings edit / add sheet ─────────────────────────────────────────────────
+const sheetOpen = ref(false)
+const sheetMode = ref<'edit' | 'add'>('edit')
+const sheetHolding = ref<any | null>(null)
+
+const formName = ref('')
+const formInstitution = ref('')
+const formKind = ref<'investment' | 'insurance' | 'savings'>('investment')
+const formValueRm = ref('')   // user types RM string, we parse to integer sen
+const formNote = ref('')
+const formSaving = ref(false)
+const formError = ref('')
+
+function openEditSheet(h: any) {
+  sheetMode.value = 'edit'
+  sheetHolding.value = h
+  formName.value = h.name
+  formInstitution.value = h.institution
+  formKind.value = h.kind
+  formValueRm.value = (h.current_value_cents / 100).toFixed(2)
+  formNote.value = h.note ?? ''
+  formError.value = ''
+  sheetOpen.value = true
+}
+
+function openAddSheet() {
+  sheetMode.value = 'add'
+  sheetHolding.value = null
+  formName.value = ''
+  formInstitution.value = ''
+  formKind.value = 'investment'
+  formValueRm.value = ''
+  formNote.value = ''
+  formError.value = ''
+  sheetOpen.value = true
+}
+
+function closeSheet() {
+  sheetOpen.value = false
+}
+
+function parseSen(rmStr: string): number | null {
+  const v = parseFloat(rmStr.replace(/,/g, ''))
+  if (!isFinite(v) || v <= 0) return null
+  return Math.round(v * 100)
+}
+
+async function saveHolding() {
+  formError.value = ''
+  const valueCents = parseSen(formValueRm.value)
+  if (!formName.value.trim()) { formError.value = 'Name is required.'; return }
+  if (!formInstitution.value.trim()) { formError.value = 'Institution is required.'; return }
+  if (valueCents === null) { formError.value = 'Enter a valid value (e.g. 12345.00).'; return }
+
+  formSaving.value = true
+  try {
+    if (sheetMode.value === 'edit' && sheetHolding.value) {
+      await $fetch(`/api/holdings/${sheetHolding.value.id}`, {
+        method: 'PATCH',
+        body: {
+          name: formName.value.trim(),
+          institution: formInstitution.value.trim(),
+          kind: formKind.value,
+          current_value_cents: valueCents,
+          note: formNote.value.trim() || null,
+        },
+      })
+    } else {
+      await $fetch('/api/holdings', {
+        method: 'POST',
+        body: {
+          name: formName.value.trim(),
+          institution: formInstitution.value.trim(),
+          kind: formKind.value,
+          current_value_cents: valueCents,
+          note: formNote.value.trim() || null,
+        },
+      })
+    }
+    await refreshHoldings()
+    closeSheet()
+  } catch (e: any) {
+    formError.value = e?.data?.statusMessage ?? 'Save failed. Try again.'
+  } finally {
+    formSaving.value = false
+  }
+}
+
 // ── Error/loading state ───────────────────────────────────────────────────────
 const isLoading = computed(() => accounts.value === null && !accountsError.value)
-const hasError = computed(() => !!(accountsError.value || debtsError.value))
+const hasError = computed(() => !!(accountsError.value || debtsError.value || holdingsError.value))
 
 async function retry() {
-  await Promise.all([refreshAccounts(), refreshDebts()])
+  await Promise.all([refreshAccounts(), refreshDebts(), refreshHoldings()])
 }
 </script>
 
@@ -111,21 +224,29 @@ async function retry() {
 
     <!-- ── Content ── -->
     <template v-else>
-      <!-- Net position summary -->
+      <!-- Net position summary (TRUE net worth) -->
       <section class="card accts-net" aria-label="Net financial position">
-        <p class="section-label">Net position</p>
+        <p class="section-label">Net worth</p>
         <div class="accts-net__row">
           <div class="accts-net__item">
+            <span class="accts-net__item-label">Liquid (accounts)</span>
+            <span class="accts-net__item-value tabnum">{{ formatRM(liquidCents) }}</span>
+          </div>
+          <div class="accts-net__item">
+            <span class="accts-net__item-label">Holdings</span>
+            <span class="accts-net__item-value tabnum">{{ formatRM(holdingsCents) }}</span>
+          </div>
+          <div class="accts-net__item accts-net__item--subtotal">
             <span class="accts-net__item-label">Total assets</span>
             <span class="accts-net__item-value tabnum">{{ formatRM(totalAssetsCents) }}</span>
           </div>
           <div class="accts-net__item">
             <span class="accts-net__item-label">Total debts</span>
-            <span class="accts-net__item-value tabnum" style="color:var(--negative)">{{ formatRM(totalDebtsCents) }}</span>
+            <span class="accts-net__item-value tabnum" style="color:var(--negative)">−{{ formatRM(totalDebtsCents) }}</span>
           </div>
           <div class="accts-net__divider" aria-hidden="true"></div>
           <div class="accts-net__item accts-net__item--net">
-            <span class="accts-net__item-label">Net</span>
+            <span class="accts-net__item-label">Net worth</span>
             <span
               class="accts-net__item-value accts-net__item-value--net tabnum"
               :class="netIsPositive ? 'accts-net__item-value--pos' : 'accts-net__item-value--neg'"
@@ -136,9 +257,6 @@ async function retry() {
             </span>
           </div>
         </div>
-        <p class="accts-net__caveat">
-          Investment &amp; insurance holdings (AIA, GE, ASNB) aren't tracked yet — coming in a later update.
-        </p>
       </section>
 
       <!-- ── Accounts section ── -->
@@ -236,6 +354,94 @@ async function retry() {
         </div>
       </section>
 
+      <!-- ── Holdings / Investments section ── -->
+      <section aria-labelledby="holdings-heading" style="margin-top:24px">
+        <div class="accts-section-heading-row">
+          <h2 id="holdings-heading" class="accts-section-heading">Holdings &amp; Investments</h2>
+          <button
+            type="button"
+            class="accts-add-btn"
+            aria-label="Add holding"
+            @click="openAddSheet"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+              stroke-linejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Add
+          </button>
+        </div>
+
+        <div v-if="holdingsList.length" class="card accts-card">
+          <!-- Holdings subtotal -->
+          <div class="accts-holdings__subtotal">
+            <span class="accts-holdings__subtotal-label">Total</span>
+            <span class="accts-holdings__subtotal-value tabnum">{{ formatRM(holdingsCents) }}</span>
+          </div>
+          <ul class="accts-list" role="list">
+            <li
+              v-for="holding in holdingsList"
+              :key="holding.id"
+              class="accts-list__row accts-holding__row"
+            >
+              <!-- holding icon (chart/trending up) -->
+              <span class="accts-list__icon-wrap accts-list__icon-wrap--holding" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+                  stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+                  <polyline points="17 6 23 6 23 12"/>
+                </svg>
+              </span>
+              <div class="accts-holding__info">
+                <div class="accts-holding__name-row">
+                  <span class="accts-list__name">{{ holding.name }}</span>
+                  <span :class="['badge', holdingKindClass(holding.kind)]">{{ holding.kind }}</span>
+                  <span
+                    v-if="holding.liquid"
+                    class="badge badge--green accts-holding__liquid-badge"
+                    aria-label="Liquid"
+                  >liquid</span>
+                </div>
+                <div class="accts-holding__meta-row">
+                  <span class="accts-holding__institution">{{ holding.institution }}</span>
+                  <span v-if="holding.note" class="accts-holding__note">{{ holding.note }}</span>
+                </div>
+              </div>
+              <div class="accts-holding__right">
+                <span class="accts-list__balance tabnum">{{ formatRM(holding.current_value_cents) }}</span>
+                <button
+                  type="button"
+                  class="accts-holding__edit-btn"
+                  :aria-label="`Edit ${holding.name}`"
+                  @click="openEditSheet(holding)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" aria-hidden="true">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                </button>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Empty state for holdings -->
+        <div v-else class="accts-empty">
+          <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true" style="color:var(--text-muted)">
+            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+            <polyline points="17 6 23 6 23 12"/>
+          </svg>
+          <p>No holdings yet. Tap + Add to track investments and insurance.</p>
+        </div>
+      </section>
+
       <!-- ── Debts section ── -->
       <section aria-labelledby="debts-heading" style="margin-top:24px">
         <h2 id="debts-heading" class="accts-section-heading">Debts</h2>
@@ -330,6 +536,109 @@ async function retry() {
         </div>
       </section>
     </template>
+
+    <!-- ── Edit / Add Holding Sheet ── -->
+    <div
+      v-if="sheetOpen"
+      class="holding-sheet-backdrop"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="sheetMode === 'edit' ? 'Edit holding' : 'Add holding'"
+      @click.self="closeSheet"
+    >
+      <div class="holding-sheet">
+        <div class="holding-sheet__header">
+          <h3 class="holding-sheet__title">{{ sheetMode === 'edit' ? 'Edit Holding' : 'Add Holding' }}</h3>
+          <button
+            type="button"
+            class="holding-sheet__close"
+            aria-label="Close"
+            @click="closeSheet"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="holding-sheet__body">
+          <p v-if="formError" role="alert" class="holding-sheet__error">{{ formError }}</p>
+
+          <div class="holding-sheet__field">
+            <label class="holding-sheet__label" for="holding-name">Name</label>
+            <input
+              id="holding-name"
+              v-model="formName"
+              type="text"
+              class="holding-sheet__input"
+              placeholder="e.g. AIA Takaful"
+              autocomplete="off"
+            />
+          </div>
+
+          <div class="holding-sheet__field">
+            <label class="holding-sheet__label" for="holding-institution">Institution</label>
+            <input
+              id="holding-institution"
+              v-model="formInstitution"
+              type="text"
+              class="holding-sheet__input"
+              placeholder="e.g. AIA"
+              autocomplete="off"
+            />
+          </div>
+
+          <div class="holding-sheet__field">
+            <label class="holding-sheet__label" for="holding-kind">Kind</label>
+            <select id="holding-kind" v-model="formKind" class="holding-sheet__input">
+              <option value="investment">Investment</option>
+              <option value="insurance">Insurance</option>
+              <option value="savings">Savings</option>
+            </select>
+          </div>
+
+          <div class="holding-sheet__field">
+            <label class="holding-sheet__label" for="holding-value">Current value (RM)</label>
+            <input
+              id="holding-value"
+              v-model="formValueRm"
+              type="text"
+              inputmode="decimal"
+              class="holding-sheet__input"
+              placeholder="e.g. 12345.00"
+              autocomplete="off"
+            />
+          </div>
+
+          <div class="holding-sheet__field">
+            <label class="holding-sheet__label" for="holding-note">Note (optional)</label>
+            <input
+              id="holding-note"
+              v-model="formNote"
+              type="text"
+              class="holding-sheet__input"
+              placeholder="e.g. Maturity 2035"
+              autocomplete="off"
+            />
+          </div>
+        </div>
+
+        <div class="holding-sheet__footer">
+          <button type="button" class="btn-secondary" @click="closeSheet">Cancel</button>
+          <button
+            type="button"
+            class="btn-primary"
+            :disabled="formSaving"
+            @click="saveHolding"
+          >
+            {{ formSaving ? 'Saving…' : (sheetMode === 'edit' ? 'Save changes' : 'Add holding') }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -353,6 +662,35 @@ async function retry() {
   color: var(--text);
   margin: 0 0 12px;
 }
+
+.accts-section-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.accts-section-heading-row .accts-section-heading {
+  margin-bottom: 0;
+}
+
+.accts-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--surface-2);
+  border: none;
+  border-radius: var(--radius-btn);
+  padding: 6px 12px;
+  min-height: 36px;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+
+.accts-add-btn:active { opacity: .7; }
 
 /* ── Card spacing ── */
 .accts-card {
@@ -410,6 +748,12 @@ async function retry() {
   gap: 8px;
 }
 
+.accts-net__item--subtotal {
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+  margin-top: 2px;
+}
+
 .accts-net__item--net {
   padding-top: 8px;
   margin-top: 2px;
@@ -418,6 +762,12 @@ async function retry() {
 .accts-net__item-label {
   font-size: 14px;
   color: var(--text-muted);
+}
+
+.accts-net__item--subtotal .accts-net__item-label,
+.accts-net__item--subtotal .accts-net__item-value {
+  font-weight: 600;
+  color: var(--text);
 }
 
 .accts-net__item-value {
@@ -457,15 +807,6 @@ async function retry() {
   height: 1px;
   background: var(--border);
   margin: 4px 0;
-}
-
-.accts-net__caveat {
-  margin: 12px 0 0;
-  font-size: 12px;
-  color: var(--text-muted);
-  line-height: 1.5;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
 }
 
 /* ── Account / Debt list ── */
@@ -509,6 +850,10 @@ async function retry() {
   color: var(--negative);
 }
 
+.accts-list__icon-wrap--holding {
+  color: var(--positive);
+}
+
 .accts-list__name {
   flex: 1;
   font-size: 15px;
@@ -532,6 +877,107 @@ async function retry() {
   font-weight: 600;
   color: var(--text);
   text-align: right;
+}
+
+/* ── Holdings ── */
+.accts-holdings__subtotal {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 10px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.accts-holdings__subtotal-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.accts-holdings__subtotal-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.accts-holding__row {
+  align-items: flex-start;
+  padding: 12px 0;
+}
+
+.accts-holding__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.accts-holding__name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.accts-holding__name-row .accts-list__name {
+  flex: unset;
+}
+
+.accts-holding__meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.accts-holding__institution {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.accts-holding__note {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.accts-holding__liquid-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+}
+
+.accts-holding__right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.accts-holding__edit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border: none;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+
+.accts-holding__edit-btn:hover {
+  background: var(--border);
+  color: var(--primary);
 }
 
 /* ── Debt rows ── */
@@ -625,6 +1071,133 @@ async function retry() {
 
 .accts-empty p {
   margin: 0;
+}
+
+/* ── Holding sheet (bottom sheet / modal) ── */
+.holding-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.45);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.holding-sheet {
+  background: var(--surface);
+  border-radius: 20px 20px 0 0;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 0 0 env(safe-area-inset-bottom, 16px);
+  box-shadow: var(--shadow-lg);
+}
+
+.holding-sheet__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 20px 12px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+
+.holding-sheet__title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+
+.holding-sheet__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 50%;
+  margin: -10px -10px -10px 0;
+}
+
+.holding-sheet__body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.holding-sheet__error {
+  background: rgba(220,38,38,.08);
+  color: var(--negative);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  margin: 0;
+}
+
+.holding-sheet__field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.holding-sheet__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.holding-sheet__input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-input);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 15px;
+  font-family: var(--font-base);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color .15s;
+}
+
+.holding-sheet__input:focus {
+  border-color: var(--ring);
+}
+
+.holding-sheet__footer {
+  display: flex;
+  gap: 10px;
+  padding: 12px 20px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.holding-sheet__footer .btn-secondary {
+  flex: 1;
+}
+
+.holding-sheet__footer .btn-primary {
+  flex: 2;
+}
+
+/* badge color variants used by holdings */
+.badge--blue {
+  background: rgba(30,64,175,.1);
+  color: var(--primary);
+}
+
+.badge--purple {
+  background: rgba(109,40,217,.1);
+  color: #7C3AED;
 }
 
 @media (prefers-reduced-motion: reduce) {
