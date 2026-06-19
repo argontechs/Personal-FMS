@@ -143,3 +143,13 @@ export const sessions = sqliteTable('sessions', {
   expires_at: integer('expires_at').notNull(), // 30-day rolling, UTC epoch ms
   last_seen_at: integer('last_seen_at').notNull(),
 })
+
+export const budgets = sqliteTable('budgets', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  category: text('category', {
+    enum: ['food', 'transport', 'fuel', 'groceries', 'shopping', 'bills', 'other'],
+  }).notNull().unique(),
+  limit_cents: integer('limit_cents').notNull(),
+  created_at: integer('created_at').notNull(),
+  updated_at: integer('updated_at').notNull(),
+})

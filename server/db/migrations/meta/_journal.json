@@ -15,6 +15,13 @@
       "when": 1750204800000,
       "tag": "0001_opening_balance_nullable_account",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1781853689265,
+      "tag": "0002_red_baron_strucker",
+      "breakpoints": true
     }
   ]
 }
