@@ -8,7 +8,7 @@ import { setup, $fetch, fetch as nitroFetch } from '@nuxt/test-utils/e2e'
 import { createDb } from '../../../server/db/index'
 import { runMigrations } from '../../../server/db/migrate'
 import { bootstrapUser } from '../../../scripts/seed-user'
-import { accounts, transactions } from '../../../server/db/schema'
+import { accounts, transactions, debts } from '../../../server/db/schema'
 import { eq } from 'drizzle-orm'
 
 const TEST_DB = './data/txn-test.sqlite'
@@ -471,5 +471,128 @@ describe('transactions API — GET month validation', () => {
   it('GET ?month=YYYY-MM succeeds', async () => {
     const rows = await authFetch('/api/transactions?month=2026-06')
     expect(Array.isArray(rows)).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// System/auto ledger-row guard — PATCH + DELETE must REFUSE non-user rows.
+// (Activity-edit corruption class: an interest row is category 'interest', POSITIVE,
+//  with a debt_id; re-saving it as a negative expense is a 2X balance swing.)
+// ---------------------------------------------------------------------------
+
+describe('transactions API — system rows are NOT editable/deletable', () => {
+  let cardDebtId: number
+
+  // Insert a raw ledger row directly (bypassing the API, like the seed/recurring poster does)
+  // and return its id. Uses a fresh DB handle to avoid WAL reader collisions.
+  function insertRawTxn(values: Record<string, unknown>): number {
+    const h = createDb(TEST_DB)
+    try {
+      const [row] = h.db.insert(transactions).values({
+        uuid: values.uuid,
+        date: values.date ?? '2026-06-18',
+        amount_cents: values.amount_cents,
+        direction: values.direction,
+        category: values.category,
+        account_id: (values.account_id ?? null) as any,
+        counter_account_id: null,
+        debt_id: (values.debt_id ?? null) as any,
+        goal_id: null,
+        note: (values.note ?? null) as any,
+        is_estimate: false,
+        source: values.source ?? 'auto',
+        recurring_item_id: null,
+        created_at: Date.now(),
+      } as any).returning().all()
+      return row.id as number
+    } finally {
+      h.sqlite.close()
+    }
+  }
+
+  beforeAll(() => {
+    const h = createDb(TEST_DB)
+    try {
+      const [d] = h.db.insert(debts).values({
+        name: 'Test Card',
+        type: 'revolving' as any,
+        balance_cents: 0,
+        rate_type: 'apr' as any,
+        created_at: Date.now(),
+        updated_at: Date.now(),
+      } as any).returning().all()
+      cardDebtId = d.id as number
+    } finally {
+      h.sqlite.close()
+    }
+  })
+
+  it('PATCH refuses a card-INTEREST row (category interest, positive, debt_id) with 403', async () => {
+    const id = insertRawTxn({
+      uuid: 'sys-interest-patch', amount_cents: 4500, direction: 'expense',
+      category: 'interest', debt_id: cardDebtId, source: 'auto',
+    })
+    await expect(authFetch(`/api/transactions/${id}`, { method: 'PATCH', body: { amount_cents: -4500, direction: 'expense', category: 'food' } }))
+      .rejects.toMatchObject({ statusCode: 403 })
+  })
+
+  it('DELETE refuses a card-INTEREST row with 403', async () => {
+    const id = insertRawTxn({
+      uuid: 'sys-interest-del', amount_cents: 4500, direction: 'expense',
+      category: 'interest', debt_id: cardDebtId, source: 'auto',
+    })
+    await expect(authFetch(`/api/transactions/${id}`, { method: 'DELETE' }))
+      .rejects.toMatchObject({ statusCode: 403 })
+  })
+
+  it('PATCH refuses a DEBT-PAYMENT row (debt_id set) with 403', async () => {
+    const id = insertRawTxn({
+      uuid: 'sys-debt-patch', amount_cents: -30000, direction: 'expense',
+      category: 'debt', debt_id: cardDebtId, source: 'manual',
+    })
+    await expect(authFetch(`/api/transactions/${id}`, { method: 'PATCH', body: { amount_cents: -1000 } }))
+      .rejects.toMatchObject({ statusCode: 403 })
+  })
+
+  it('DELETE refuses a DEBT-PAYMENT row with 403', async () => {
+    const id = insertRawTxn({
+      uuid: 'sys-debt-del', amount_cents: -30000, direction: 'expense',
+      category: 'debt', debt_id: cardDebtId, source: 'manual',
+    })
+    await expect(authFetch(`/api/transactions/${id}`, { method: 'DELETE' }))
+      .rejects.toMatchObject({ statusCode: 403 })
+  })
+
+  it('PATCH refuses a transfer-direction row with 403', async () => {
+    const id = insertRawTxn({
+      uuid: 'sys-transfer-patch', amount_cents: -10000, direction: 'transfer',
+      category: 'transfer', account_id: bankId, source: 'manual',
+    })
+    await expect(authFetch(`/api/transactions/${id}`, { method: 'PATCH', body: { note: 'x' } }))
+      .rejects.toMatchObject({ statusCode: 403 })
+  })
+
+  it('a normal user EXPENSE round-trips: PATCH then DELETE both succeed', async () => {
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'user-spend-rt', date: '2026-06-18', amount_cents: -1250, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' },
+    })
+    const updated = await authFetch(`/api/transactions/${id}`, { method: 'PATCH', body: { amount_cents: -2000, direction: 'expense', category: 'transport' } })
+    expect(updated.amount_cents).toBe(-2000)
+    expect(updated.direction).toBe('expense')
+    const del = await authFetch(`/api/transactions/${id}`, { method: 'DELETE' })
+    expect(del.ok).toBe(true)
+  })
+
+  it('a normal user INCOME round-trips and stays income+positive', async () => {
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'user-income-rt', date: '2026-06-18', amount_cents: 150000, direction: 'income', category: 'income', account_id: bankId, source: 'manual' },
+    })
+    const updated = await authFetch(`/api/transactions/${id}`, { method: 'PATCH', body: { amount_cents: 175000, direction: 'income', category: 'income' } })
+    expect(updated.direction).toBe('income')
+    expect(updated.category).toBe('income')
+    expect(updated.amount_cents).toBe(175000)
+    expect(updated.amount_cents).toBeGreaterThan(0)
   })
 })

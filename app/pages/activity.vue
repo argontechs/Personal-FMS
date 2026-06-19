@@ -6,6 +6,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import CategoryIcon from '~/components/CategoryIcon.vue'
 import { SPEND_CATEGORIES } from '../../shared/categories'
+import { isEditableTxn } from '../../shared/txnEditable'
 
 // ── Transaction shape from GET /api/transactions ──────────────────────────
 interface Transaction {
@@ -150,6 +151,14 @@ function isExpense(t: Transaction): boolean {
   return t.amount_cents < 0 || t.direction === 'expense'
 }
 
+// ── Editability guard (shared with server) ────────────────────────────────
+// System/auto ledger rows (card interest, debt payments, savings legs, transfers,
+// adjustments) stay VISIBLE as read-only history but carry NO edit/delete affordance —
+// editing them through the income/expense sheet would flip signs and corrupt balances.
+function isEditable(t: Transaction): boolean {
+  return isEditableTxn(t)
+}
+
 // ── Delete + Undo ─────────────────────────────────────────────────────────
 interface ToastState {
   visible: boolean
@@ -178,6 +187,8 @@ function showToast(message: string, undoFn: () => Promise<void>) {
 }
 
 async function deleteTransaction(txn: Transaction) {
+  // Guard: never delete a read-only system/auto row.
+  if (!isEditable(txn)) return
   // Optimistically remove from list
   const idx = transactions.value.findIndex(t => t.id === txn.id)
   if (idx !== -1) transactions.value.splice(idx, 1)
@@ -254,6 +265,8 @@ const editIsIncome = computed(
 )
 
 function openEdit(txn: Transaction) {
+  // Guard: never open the edit sheet for a read-only system/auto row.
+  if (!isEditable(txn)) return
   editTarget.value = txn
   editAmountRm.value = (Math.abs(txn.amount_cents) / 100).toFixed(2)
   editCategory.value = txn.category
@@ -395,9 +408,12 @@ async function saveEdit() {
             role="listitem"
           >
             <!-- ── Icon + name/note ───────────────────────────────────── -->
+            <!-- Editable user rows: tappable button that opens the edit sheet. -->
             <button
+              v-if="isEditable(txn)"
               class="list-row__main"
               :aria-label="`Edit ${categoryLabel(txn.category)} transaction`"
+              data-test="row-editable"
               @click="openEdit(txn)"
             >
               <span class="list-row__icon">
@@ -408,6 +424,22 @@ async function saveEdit() {
                 <span v-if="txn.note" class="list-row__note">{{ txn.note }}</span>
               </span>
             </button>
+            <!-- Read-only system/auto rows (interest, debt payments, transfers, savings,
+                 adjustments): VISIBLE history but NOT a button — no edit handler, no
+                 aria 'button' role, not keyboard-focusable, no chevron. -->
+            <div
+              v-else
+              class="list-row__main list-row__main--readonly"
+              data-test="row-readonly"
+            >
+              <span class="list-row__icon">
+                <CategoryIcon :category="txn.category" />
+              </span>
+              <span class="list-row__info">
+                <span class="list-row__name">{{ categoryLabel(txn.category) }}</span>
+                <span v-if="txn.note" class="list-row__note">{{ txn.note }}</span>
+              </span>
+            </div>
 
             <!-- ── Amount + delete ────────────────────────────────────── -->
             <div class="list-row__right">
@@ -417,7 +449,9 @@ async function saveEdit() {
               >
                 {{ isExpense(txn) ? '-' : '+' }}RM{{ formatAmount(txn.amount_cents) }}
               </span>
+              <!-- Delete affordance ONLY for editable user rows. -->
               <button
+                v-if="isEditable(txn)"
                 class="list-row__delete"
                 :aria-label="`Delete ${categoryLabel(txn.category)} transaction`"
                 @click="deleteTransaction(txn)"
@@ -701,6 +735,11 @@ async function saveEdit() {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
   border-radius: var(--radius-input);
+}
+
+/* Read-only system/auto rows: visible history, no edit affordance. */
+.list-row__main--readonly {
+  cursor: default;
 }
 
 .list-row__icon {

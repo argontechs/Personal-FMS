@@ -4,6 +4,7 @@ import { db } from '../../db/index'
 import { transactions } from '../../db/schema'
 import { recomputeBalances } from '../../utils/post'
 import { withinAmountCeiling } from '../../utils/money'
+import { isEditableTxn } from '../../../shared/txnEditable'
 import { eq } from 'drizzle-orm'
 
 const VALID_CATEGORIES = ['food', 'transport', 'car', 'fuel', 'groceries', 'shopping', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'] as const
@@ -56,10 +57,23 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'nothing to patch' })
   }
 
-  const existing = db.select({ id: transactions.id, amount_cents: transactions.amount_cents, direction: transactions.direction })
-    .from(transactions).where(eq(transactions.id, id)).get()
+  const existing = db.select({
+    id: transactions.id,
+    amount_cents: transactions.amount_cents,
+    direction: transactions.direction,
+    category: transactions.category,
+    debt_id: transactions.debt_id,
+    source: transactions.source,
+  }).from(transactions).where(eq(transactions.id, id)).get()
   if (!existing) {
     throw createError({ statusCode: 404, statusMessage: 'transaction not found' })
+  }
+
+  // Defense in depth: never edit a system/auto ledger row (card interest, debt payments,
+  // savings legs, transfers, adjustments). Their sign + debt_id wiring carry ledger meaning;
+  // re-saving them through the income/expense sheet would corrupt recomputeBalances.
+  if (!isEditableTxn(existing)) {
+    throw createError({ statusCode: 403, statusMessage: 'this transaction is system-managed and cannot be edited' })
   }
 
   // Canonical sign invariant: income amount_cents must be >= 0, expense must be <= 0.

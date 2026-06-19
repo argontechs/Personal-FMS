@@ -279,6 +279,86 @@ describe('Activity page', () => {
     })
   })
 
+  // ── System-row read-only guard (ledger-corruption prevention) ────────────────
+  // Interest rows (category 'interest', POSITIVE amount, debt_id) and debt-payment rows
+  // (debt_id) must stay VISIBLE as history but carry NO edit handler and NO delete button.
+  describe('system-row read-only guard', () => {
+    it('a card-INTEREST row (category interest, positive, debt_id) is VISIBLE but NOT editable/deletable', async () => {
+      const interestTxn = makeTxn({
+        id: 70,
+        date: '2026-06-19',
+        amount_cents: 4500, // POSITIVE — debt-grows convention
+        direction: 'expense',
+        category: 'interest' as any,
+        debt_id: 3 as any,
+        source: 'auto',
+        note: 'Card interest',
+      })
+      const w = mountActivity(async (url: string) => {
+        if (url.startsWith('/api/transactions')) return [interestTxn]
+        return []
+      })
+      await flushPromises()
+
+      // Still rendered as history.
+      expect(w.findAll('[role="listitem"]').length).toBe(1)
+      expect(w.text()).toContain('Interest')
+
+      // It must render as the read-only variant, NOT the editable button.
+      expect(w.find('[data-test="row-readonly"]').exists()).toBe(true)
+      expect(w.find('[data-test="row-editable"]').exists()).toBe(false)
+
+      // No edit-opening button (list-row__main button) and no delete button.
+      expect(w.find('button.list-row__main').exists()).toBe(false)
+      expect(w.find('.list-row__delete').exists()).toBe(false)
+
+      // Tapping the row must NOT open the edit sheet.
+      await w.find('[data-test="row-readonly"]').trigger('click')
+      await w.vm.$nextTick()
+      expect(document.querySelector('[data-testid="edit-sheet"]')).toBeNull()
+    })
+
+    it('a DEBT-PAYMENT row (debt_id set) is VISIBLE but NOT editable/deletable', async () => {
+      const debtTxn = makeTxn({
+        id: 71,
+        date: '2026-06-19',
+        amount_cents: -30000, // a payment leg
+        direction: 'expense',
+        category: 'debt' as any,
+        debt_id: 5 as any,
+        source: 'manual',
+        note: 'Card payment',
+      })
+      const w = mountActivity(async (url: string) => {
+        if (url.startsWith('/api/transactions')) return [debtTxn]
+        return []
+      })
+      await flushPromises()
+
+      expect(w.findAll('[role="listitem"]').length).toBe(1)
+      expect(w.find('[data-test="row-readonly"]').exists()).toBe(true)
+      expect(w.find('[data-test="row-editable"]').exists()).toBe(false)
+      expect(w.find('button.list-row__main').exists()).toBe(false)
+      expect(w.find('.list-row__delete').exists()).toBe(false)
+    })
+
+    it('a normal user spend + a user income ARE editable (button + delete present)', async () => {
+      const w = mountActivity(async (url: string) => {
+        if (url.startsWith('/api/transactions')) return [
+          makeTxn({ id: 80, date: '2026-06-19', amount_cents: -1200, direction: 'expense', category: 'food' }),
+          makeTxn({ id: 81, date: '2026-06-19', amount_cents: 200000, direction: 'income', category: 'income' }),
+        ]
+        return []
+      })
+      await flushPromises()
+
+      // Both rows editable: two editable buttons + two delete buttons, zero read-only rows.
+      expect(w.findAll('[data-test="row-editable"]').length).toBe(2)
+      expect(w.findAll('[data-test="row-readonly"]').length).toBe(0)
+      expect(w.findAll('.list-row__delete').length).toBe(2)
+    })
+  })
+
   // ── Delete + undo ────────────────────────────────────────────────────────────
   describe('delete + undo', () => {
     it('calls DELETE and shows undo toast when delete button is clicked', async () => {

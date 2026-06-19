@@ -3,6 +3,7 @@ import { requireSession } from '../../utils/requireSession'
 import { db } from '../../db/index'
 import { recurringItems } from '../../db/schema'
 import { nextDueDate, todayMYT, nowEpoch } from '../../utils/mytDate'
+import { withinAmountCeiling } from '../../utils/money'
 import { eq } from 'drizzle-orm'
 
 const PATCHABLE_FIELDS = [
@@ -31,6 +32,10 @@ export default defineEventHandler(async (event) => {
     // Match POST: non-negative (0 is valid — e.g. SPayLater base template carries amounts in remaining_installments_json).
     if (typeof ac !== 'number' || !Number.isInteger(ac) || ac < 0) {
       throw createError({ statusCode: 400, statusMessage: 'amount_cents must be a non-negative integer' })
+    }
+    // Same RM1B ceiling the other money endpoints enforce (auto-post safety).
+    if (!withinAmountCeiling(ac)) {
+      throw createError({ statusCode: 400, statusMessage: 'amount_cents exceeds maximum' })
     }
   }
 

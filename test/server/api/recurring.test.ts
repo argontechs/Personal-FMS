@@ -173,6 +173,22 @@ describe('recurring API — POST creates template', () => {
       body: { name: 'NegAmt', direction: 'expense', amount_cents: -100, start_date: '2026-06-01' },
     })).rejects.toMatchObject({ statusCode: 400 })
   })
+
+  it('POST returns 400 for an over-ceiling amount_cents (auto-post safety)', async () => {
+    const OVER = 10_000_000_001 // 1 sen over the RM1B ceiling
+    await expect(authFetch('/api/recurring', {
+      method: 'POST',
+      body: { name: 'OverCeil', direction: 'expense', amount_cents: OVER, day_of_month: 5, category: 'bills', start_date: '2026-06-01' },
+    })).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('POST allows an amount exactly at the ceiling', async () => {
+    const row = await authFetch('/api/recurring', {
+      method: 'POST',
+      body: { name: 'AtCeil', direction: 'expense', amount_cents: 10_000_000_000, day_of_month: 5, category: 'bills', start_date: '2026-06-01' },
+    })
+    expect(row.id).toBeTypeOf('number')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -288,6 +304,18 @@ describe('recurring API — PATCH edits template', () => {
     await expect(authFetch(`/api/recurring/${created.id}`, {
       method: 'PATCH',
       body: { day_of_month: 99 },
+    })).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('PATCH returns 400 for an over-ceiling amount_cents (auto-post safety)', async () => {
+    const created = await authFetch('/api/recurring', {
+      method: 'POST',
+      body: { name: 'OverCeilPatch', direction: 'expense', amount_cents: 1000, day_of_month: 5, category: 'bills', start_date: '2026-06-01' },
+    })
+    const OVER = 10_000_000_001
+    await expect(authFetch(`/api/recurring/${created.id}`, {
+      method: 'PATCH',
+      body: { amount_cents: OVER },
     })).rejects.toMatchObject({ statusCode: 400 })
   })
 

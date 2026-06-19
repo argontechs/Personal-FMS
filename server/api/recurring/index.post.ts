@@ -3,6 +3,7 @@ import { requireSession } from '../../utils/requireSession'
 import { db } from '../../db/index'
 import { recurringItems } from '../../db/schema'
 import { nextDueDate, todayMYT, nowEpoch } from '../../utils/mytDate'
+import { withinAmountCeiling } from '../../utils/money'
 
 const VALID_DIRECTIONS = ['income', 'expense'] as const
 const VALID_CADENCES = ['monthly', 'weekly', 'biweekly', 'yearly'] as const
@@ -20,6 +21,11 @@ export default defineEventHandler(async (event) => {
   }
   if (typeof b.amount_cents !== 'number' || !Number.isInteger(b.amount_cents) || b.amount_cents < 0) {
     throw createError({ statusCode: 400, statusMessage: 'amount_cents must be a non-negative integer' })
+  }
+  // Same RM1B ceiling the other money endpoints enforce — an over-ceiling recurring amount
+  // would auto-post unbounded ledger entries via runPostRecurring.
+  if (!withinAmountCeiling(b.amount_cents)) {
+    throw createError({ statusCode: 400, statusMessage: 'amount_cents exceeds maximum' })
   }
   if (!b?.start_date || typeof b.start_date !== 'string') {
     throw createError({ statusCode: 400, statusMessage: 'start_date required' })
