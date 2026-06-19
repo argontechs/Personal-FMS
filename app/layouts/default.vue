@@ -34,34 +34,9 @@ onUnmounted(() => {
 })
 
 // ── Dead-letter banner actions ────────────────────────────────────────────────
-const { flush, readDeadLetterItems } = useOfflineQueue()
-
-/** Retry: clear dead-letter store and re-enqueue items, then flush. */
-async function retryDeadLetters() {
-  const items = await readDeadLetterItems()
-  if (!items.length) return
-  // Open the DB to wipe the dead-letter store, then re-enqueue each item
-  const { openDB } = await import('idb')
-  const db = await openDB('money-fms', 2)
-  for (const item of items) {
-    await db.delete('dead_txns', item.uuid)
-    // Re-put into pending with reset attempt counter
-    await db.put('pending_txns', { ...item, attempts: 0, nextRetryAt: 0, deadLetteredAt: undefined })
-  }
-  deadLetterCount.value = 0
-  await flush()
-}
-
-/** Discard: silently remove all dead-lettered items. */
-async function discardDeadLetters() {
-  const { openDB } = await import('idb')
-  const db = await openDB('money-fms', 2)
-  const items = await db.getAll('dead_txns')
-  for (const item of items) {
-    await db.delete('dead_txns', item.uuid)
-  }
-  deadLetterCount.value = 0
-}
+// Route all dead-letter operations through the composable — the layout must NOT
+// open IndexedDB directly (would risk VersionError if the composable bumps the DB version).
+const { retryDeadLetters, discardDeadLetters } = useOfflineQueue()
 </script>
 
 <template>

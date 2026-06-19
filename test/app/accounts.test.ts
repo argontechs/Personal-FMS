@@ -220,6 +220,8 @@ describe('Accounts & Debts page — error and loading states', () => {
 })
 
 // ─── Holdings add/edit sheet — liquid toggle, delete, a11y ──────────────────────
+// The holding sheet is rendered via <Teleport to=”body”>, so sheet elements live
+// outside the Vue wrapper's subtree. Query them via document.querySelector / document.body.
 
 describe('Accounts page — holdings sheet liquid toggle', () => {
   it('Add: includes liquid (0/1) in the POST body, defaulting off then toggled on', async () => {
@@ -232,22 +234,23 @@ describe('Accounts page — holdings sheet liquid toggle', () => {
     await w.find('.accts-add-btn').trigger('click')
     await flushPromises()
 
-    // helper text present
-    expect(w.text()).toContain("Liquid holdings power the “clear the card” suggestion.")
+    // helper text present — sheet is Teleported to document.body
+    expect(document.body.textContent).toContain('Liquid holdings power the')
 
-    // fill required fields
-    const name = w.find('#holding-name').element as HTMLInputElement
+    // fill required fields via document.querySelector (Teleport renders outside wrapper)
+    const name = document.querySelector('#holding-name') as HTMLInputElement
     name.value = 'New Fund'; name.dispatchEvent(new Event('input'))
-    const inst = w.find('#holding-institution').element as HTMLInputElement
+    const inst = document.querySelector('#holding-institution') as HTMLInputElement
     inst.value = 'ASNB'; inst.dispatchEvent(new Event('input'))
-    const val = w.find('#holding-value').element as HTMLInputElement
+    const val = document.querySelector('#holding-value') as HTMLInputElement
     val.value = '1000.00'; val.dispatchEvent(new Event('input'))
     // toggle liquid ON
-    const toggle = w.find('.holding-sheet__toggle-input').element as HTMLInputElement
+    const toggle = document.querySelector('.holding-sheet__toggle-input') as HTMLInputElement
     toggle.checked = true; toggle.dispatchEvent(new Event('change'))
     await flushPromises()
 
-    await w.find('.holding-sheet__footer .btn-primary').trigger('click')
+    const confirmBtn = document.querySelector('.holding-sheet__footer .btn-primary') as HTMLButtonElement
+    confirmBtn.click()
     await flushPromises()
 
     expect(mockFetch).toHaveBeenCalledWith('/api/holdings', expect.objectContaining({
@@ -267,10 +270,12 @@ describe('Accounts page — holdings sheet liquid toggle', () => {
     await w.find('.accts-holding__edit-btn').trigger('click')
     await flushPromises()
 
-    const toggle = w.find('.holding-sheet__toggle-input').element as HTMLInputElement
+    // Sheet is Teleported to document.body — check there
+    const toggle = document.querySelector('.holding-sheet__toggle-input') as HTMLInputElement
     expect(toggle.checked).toBe(true) // AIA seeded liquid:1
 
-    await w.find('.holding-sheet__footer .btn-primary').trigger('click')
+    const confirmBtn = document.querySelector('.holding-sheet__footer .btn-primary') as HTMLButtonElement
+    confirmBtn.click()
     await flushPromises()
 
     expect(mockFetch).toHaveBeenCalledWith('/api/holdings/20', expect.objectContaining({
@@ -303,18 +308,18 @@ describe('Accounts page — holdings delete', () => {
     await w.find('.accts-holding__edit-btn').trigger('click')
     await flushPromises()
 
-    // delete button is present only in edit mode
-    const delBtn = w.find('.holding-sheet__delete-btn')
-    expect(delBtn.exists()).toBe(true)
+    // Sheet is Teleported to document.body — query via document.querySelector
+    const delBtn = document.querySelector('.holding-sheet__delete-btn') as HTMLButtonElement
+    expect(delBtn).not.toBeNull()
 
     // first click arms confirm (no DELETE yet)
-    await delBtn.trigger('click')
+    delBtn.click()
     await flushPromises()
     expect(mockFetch).not.toHaveBeenCalled()
-    expect(w.find('.holding-sheet__delete-btn').text()).toContain('confirm')
+    expect(document.querySelector('.holding-sheet__delete-btn')!.textContent).toContain('confirm')
 
     // second click performs the delete
-    await w.find('.holding-sheet__delete-btn').trigger('click')
+    ;(document.querySelector('.holding-sheet__delete-btn') as HTMLButtonElement).click()
     await flushPromises()
 
     expect(mockFetch).toHaveBeenCalledWith('/api/holdings/20', expect.objectContaining({ method: 'DELETE' }))
@@ -326,7 +331,8 @@ describe('Accounts page — holdings delete', () => {
     await flushPromises()
     await w.find('.accts-add-btn').trigger('click')
     await flushPromises()
-    expect(w.find('.holding-sheet__delete-btn').exists()).toBe(false)
+    // Sheet is Teleported to document.body — check there
+    expect(document.querySelector('.holding-sheet__delete-btn')).toBeNull()
   })
 })
 
@@ -337,7 +343,8 @@ describe('Accounts page — holdings sheet a11y', () => {
     await w.find('.accts-add-btn').trigger('click')
     await flushPromises()
     await nextTick()
-    const name = w.find('#holding-name').element as HTMLInputElement
+    // Sheet is Teleported to document.body — query via document.querySelector
+    const name = document.querySelector('#holding-name') as HTMLInputElement
     expect(document.activeElement).toBe(name)
   })
 
@@ -346,9 +353,11 @@ describe('Accounts page — holdings sheet a11y', () => {
     await flushPromises()
     await w.find('.accts-add-btn').trigger('click')
     await flushPromises()
-    expect(w.find('.holding-sheet-backdrop').exists()).toBe(true)
-    await w.find('.holding-sheet-backdrop').trigger('keydown.esc')
+    // Sheet is Teleported to document.body — check there
+    expect(document.querySelector('.holding-sheet-backdrop')).not.toBeNull()
+    const backdrop = document.querySelector('.holding-sheet-backdrop') as HTMLElement
+    backdrop.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     await flushPromises()
-    expect(w.find('.holding-sheet-backdrop').exists()).toBe(false)
+    expect(document.querySelector('.holding-sheet-backdrop')).toBeNull()
   })
 })

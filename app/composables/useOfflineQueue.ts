@@ -170,7 +170,36 @@ export function useOfflineQueue() {
     return db.getAll(DEAD_LETTER_STORE);
   }
 
-  return { enqueue, pending, flush, readDeadLetterItems };
+  /**
+   * Retry: moves all dead-lettered items back to the pending queue (reset attempts + nextRetryAt)
+   * then immediately attempts a flush. Updates deadLetterCount when done.
+   */
+  async function retryDeadLetters(): Promise<void> {
+    const db = await getDb();
+    const items: (QueuedTxnInternal & { deadLetteredAt?: number })[] = await db.getAll(DEAD_LETTER_STORE);
+    if (!items.length) return;
+    for (const item of items) {
+      const { deadLetteredAt: _d, ...base } = item;
+      await db.put(STORE, { ...base, attempts: 0, nextRetryAt: 0 });
+      await db.delete(DEAD_LETTER_STORE, item.uuid);
+    }
+    deadLetterCount.value = 0;
+    await flush();
+  }
+
+  /**
+   * Discard: silently removes all dead-lettered items. Updates deadLetterCount when done.
+   */
+  async function discardDeadLetters(): Promise<void> {
+    const db = await getDb();
+    const items: QueuedTxnInternal[] = await db.getAll(DEAD_LETTER_STORE);
+    for (const item of items) {
+      await db.delete(DEAD_LETTER_STORE, item.uuid);
+    }
+    deadLetterCount.value = 0;
+  }
+
+  return { enqueue, pending, flush, readDeadLetterItems, retryDeadLetters, discardDeadLetters };
 }
 
 /** Test-only: resets the module-level singletons between test cases. */

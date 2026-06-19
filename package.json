@@ -27,7 +27,11 @@
     "nuxt": "^4.4.5",
     "vue": "^3.5.38",
     "web-push": "^3.6.7",
-    "workbox-precaching": "7.4.1"
+    "workbox-cacheable-response": "7.4.1",
+    "workbox-expiration": "7.4.1",
+    "workbox-precaching": "7.4.1",
+    "workbox-routing": "7.4.1",
+    "workbox-strategies": "7.4.1"
   },
   "devDependencies": {
     "@nuxt/test-utils": "^3.23.0",

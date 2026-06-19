@@ -57,13 +57,17 @@ beforeEach(() => { vi.resetAllMocks() })
 afterEach(() => { for (const w of mounted) w.unmount(); mounted = [] })
 
 describe('useFocusTrap — Accounts holdings sheet', () => {
+  // NOTE: The holding sheet is rendered via <Teleport to="body">, so [role="dialog"] and
+  // sheet inputs live outside the Vue wrapper's subtree. Use document.querySelector.
+
   it('moves focus INSIDE the dialog on open (the Name input)', async () => {
     const w = mountAccounts()
     await flushPromises()
     await w.find('.accts-add-btn').trigger('click')
     await flushPromises()
     await nextTick()
-    const name = w.find('#holding-name').element as HTMLInputElement
+    // Sheet is Teleported to document.body — query via document.querySelector
+    const name = document.querySelector('#holding-name') as HTMLInputElement
     expect(document.activeElement).toBe(name)
   })
 
@@ -74,7 +78,9 @@ describe('useFocusTrap — Accounts holdings sheet', () => {
     await flushPromises()
     await nextTick()
 
-    const dialog = w.find('[role="dialog"]').element as HTMLElement
+    // Sheet is Teleported to document.body
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).not.toBeNull()
     const focusables = Array.from(
       dialog.querySelectorAll<HTMLElement>(
         'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
@@ -99,7 +105,9 @@ describe('useFocusTrap — Accounts holdings sheet', () => {
     await flushPromises()
     await nextTick()
 
-    const dialog = w.find('[role="dialog"]').element as HTMLElement
+    // Sheet is Teleported to document.body
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).not.toBeNull()
     const focusables = Array.from(
       dialog.querySelectorAll<HTMLElement>(
         'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
@@ -118,11 +126,12 @@ describe('useFocusTrap — Accounts holdings sheet', () => {
     await flushPromises()
     await w.find('.accts-add-btn').trigger('click')
     await flushPromises()
-    expect(w.find('[role="dialog"]').exists()).toBe(true)
+    // Sheet is Teleported to document.body
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
 
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
     await flushPromises()
-    expect(w.find('[role="dialog"]').exists()).toBe(false)
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
   })
 
   it('restores focus to the trigger element on close', async () => {
@@ -152,7 +161,9 @@ describe('useFocusTrap — Accounts holdings sheet', () => {
     await flushPromises()
     await nextTick()
 
-    const dialog = w.find('[role="dialog"]').element as HTMLElement
+    // Sheet is Teleported to document.body — dialog's parent is now <body>
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).not.toBeNull()
     const parent = dialog.parentElement!
     const siblings = Array.from(parent.children).filter((c) => c !== dialog) as HTMLElement[]
     // At least one sibling exists (the page content) and is inerted.

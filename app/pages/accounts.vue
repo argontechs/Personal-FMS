@@ -593,6 +593,7 @@ async function retry() {
     </template>
 
     <!-- ── Edit / Add Holding Sheet ── -->
+    <Teleport to="body">
     <div
       v-if="sheetOpen"
       ref="sheetRef"
@@ -739,6 +740,7 @@ async function retry() {
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
