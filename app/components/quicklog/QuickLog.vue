@@ -1,6 +1,6 @@
 <!-- app/components/quicklog/QuickLog.vue -->
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useOfflineQueue, type QueuedTxn } from '../../composables/useOfflineQueue';
 
 const props = defineProps<{ accountId: number; defaultDate?: string; accounts?: Account[] }>();
@@ -21,24 +21,33 @@ const busy = ref(false);
 type Mode = 'expense' | 'income';
 const mode = ref<Mode>('expense');
 
-// ── Income state ──────────────────────────────────────────────────────────────
+// ── Account state ─────────────────────────────────────────────────────────────
 const SPENDABLE_TYPES = new Set(['cash', 'bank', 'ewallet', 'savings']);
 const spendableAccounts = computed<Account[]>(() => {
   if (!props.accounts) return [];
   return props.accounts.filter(a => SPENDABLE_TYPES.has(a.type));
 });
 
-// Default to first bank account, fallback to first spendable, fallback to props.accountId
+// Mode-aware default: expense → cash, income → bank
+function pickDefaultAccount(m: Mode, accs: Account[]): number {
+  if (accs.length === 0) return props.accountId;
+  if (m === 'expense') {
+    const cash = accs.find(a => a.type === 'cash');
+    return cash?.id ?? accs[0]!.id;
+  } else {
+    const bank = accs.find(a => a.type === 'bank');
+    return bank?.id ?? accs[0]!.id;
+  }
+}
+
 const selectedAccountId = ref<number>(props.accountId);
 const hasInitialisedAccount = ref(false);
 
-// When accounts first arrive, pick the main bank account
-import { watch } from 'vue';
+// When accounts first arrive, set mode-aware default
 watch(spendableAccounts, (accs) => {
   if (hasInitialisedAccount.value || accs.length === 0) return;
   hasInitialisedAccount.value = true;
-  const bank = accs.find(a => a.type === 'bank');
-  selectedAccountId.value = bank?.id ?? accs[0]?.id ?? props.accountId;
+  selectedAccountId.value = pickDefaultAccount(mode.value, accs);
 }, { immediate: true });
 
 const INCOME_SOURCES = ['Salary', 'Side gig', 'Refund', 'Gift', 'Other'] as const;
@@ -73,7 +82,7 @@ async function log(category: SpendCategory) {
       amount_cents: -ringgitToSen(rm), // quick-log expense → negative
       direction: 'expense',
       category,
-      account_id: props.accountId,
+      account_id: selectedAccountId.value,
       note: remark.value.trim() || undefined,
     });
     emit('logged', txn);
@@ -110,6 +119,8 @@ function setMode(m: Mode) {
   amount.value = '';
   remark.value = '';
   selectedSource.value = null;
+  // Re-pick sensible default for the new mode
+  selectedAccountId.value = pickDefaultAccount(m, spendableAccounts.value);
 }
 </script>
 
@@ -156,8 +167,27 @@ function setMode(m: Mode) {
       />
     </div>
 
-    <!-- ── EXPENSE mode: category chips ────────────────────────────────── -->
+    <!-- ── EXPENSE mode: account picker + category chips ──────────────── -->
     <template v-if="mode === 'expense'">
+
+      <!-- Paid-from account picker (only when >1 spendable account) -->
+      <div class="quicklog__field" v-if="spendableAccounts.length > 1">
+        <label class="quicklog__field-label" for="expense-account">Paid from</label>
+        <select
+          id="expense-account"
+          data-test="expense-account"
+          class="quicklog__select"
+          :value="selectedAccountId"
+          @change="selectedAccountId = +($event.target as HTMLSelectElement).value"
+        >
+          <option
+            v-for="acc in spendableAccounts"
+            :key="acc.id"
+            :value="acc.id"
+          >{{ acc.name }}</option>
+        </select>
+      </div>
+
       <!-- Optional remark (persisted as transaction note) -->
       <input
         data-test="remark"
@@ -505,7 +535,7 @@ function setMode(m: Mode) {
   pointer-events: none;
 }
 
-/* ── Income account field ────────────────────────────────────────────────── */
+/* ── Account field (shared by expense + income pickers) ─────────────────── */
 .quicklog__field {
   display: flex;
   flex-direction: column;

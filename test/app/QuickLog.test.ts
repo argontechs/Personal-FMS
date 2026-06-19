@@ -263,4 +263,108 @@ describe('QuickLog', () => {
     expect(wrapper.find('[data-test="cat-food"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="log-income"]').exists()).toBe(false);
   });
+
+  // ── Expense account picker (new behaviour) ──────────────────────────────
+  it('expense mode renders account picker when >1 spendable account', async () => {
+    const wrapper = mount(QuickLog, {
+      props: { accountId: 1, defaultDate: '2026-06-19', accounts: mockAccounts },
+    });
+    // Already in expense mode by default
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-test="expense-account"]').exists()).toBe(true);
+  });
+
+  it('expense mode does NOT render account picker when only 1 spendable account', async () => {
+    const singleAccount = [{ id: 12, name: 'Cash Wallet', type: 'cash' }];
+    const wrapper = mount(QuickLog, {
+      props: { accountId: 12, defaultDate: '2026-06-19', accounts: singleAccount },
+    });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-test="expense-account"]').exists()).toBe(false);
+  });
+
+  it('expense mode defaults selectedAccountId to Cash account', async () => {
+    const wrapper = mount(QuickLog, {
+      props: { accountId: 1, defaultDate: '2026-06-19', accounts: mockAccounts },
+    });
+    await wrapper.vm.$nextTick();
+
+    // Enter amount and log — should use Cash Wallet (id=12) by default
+    await wrapper.find('[data-test="amount"]').setValue('10.00');
+    await wrapper.find('[data-test="cat-food"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(enqueued.length).toBe(1);
+    expect(enqueued[0].account_id).toBe(12); // Cash Wallet is default for expense
+    expect(enqueued[0].direction).toBe('expense');
+  });
+
+  it('selecting a different account in expense mode enqueues chosen account_id', async () => {
+    const wrapper = mount(QuickLog, {
+      props: { accountId: 1, defaultDate: '2026-06-19', accounts: mockAccounts },
+    });
+    await wrapper.vm.$nextTick();
+
+    // Change picker to Touch n Go (id=11)
+    const select = wrapper.find('[data-test="expense-account"]');
+    await select.setValue('11');
+    await wrapper.vm.$nextTick();
+
+    await wrapper.find('[data-test="amount"]').setValue('25.00');
+    await wrapper.find('[data-test="cat-transport"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(enqueued.length).toBe(1);
+    expect(enqueued[0].direction).toBe('expense');
+    expect(enqueued[0].account_id).toBe(11); // chosen ewallet, not hardcoded cash
+    expect(enqueued[0].amount_cents).toBe(-2500);
+  });
+
+  it('expense account picker label is "Paid from"', async () => {
+    const wrapper = mount(QuickLog, {
+      props: { accountId: 1, defaultDate: '2026-06-19', accounts: mockAccounts },
+    });
+    await wrapper.vm.$nextTick();
+
+    const label = wrapper.find('label[for="expense-account"]');
+    expect(label.exists()).toBe(true);
+    expect(label.text()).toBe('Paid from');
+  });
+
+  it('switching from expense to income re-defaults to bank account', async () => {
+    const wrapper = mount(QuickLog, {
+      props: { accountId: 1, defaultDate: '2026-06-19', accounts: mockAccounts },
+    });
+    await wrapper.vm.$nextTick();
+
+    // Confirm expense default is Cash (id=12)
+    await wrapper.find('[data-test="amount"]').setValue('5.00');
+    await wrapper.find('[data-test="cat-food"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(enqueued[0].account_id).toBe(12);
+
+    // Switch to income — should now default to bank (id=10)
+    await wrapper.find('[data-test="mode-income"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    await wrapper.find('[data-test="amount"]').setValue('500.00');
+    await wrapper.find('[data-test="log-income"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(enqueued[1].direction).toBe('income');
+    expect(enqueued[1].account_id).toBe(10); // bank re-selected for income
+  });
+
+  it('expense mode does not render income picker (data-test="income-account")', async () => {
+    const wrapper = mount(QuickLog, {
+      props: { accountId: 1, defaultDate: '2026-06-19', accounts: mockAccounts },
+    });
+    await wrapper.vm.$nextTick();
+
+    // In expense mode, income-account should not exist
+    expect(wrapper.find('[data-test="income-account"]').exists()).toBe(false);
+    // But expense-account should exist
+    expect(wrapper.find('[data-test="expense-account"]').exists()).toBe(true);
+  });
 });
