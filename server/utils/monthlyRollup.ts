@@ -4,7 +4,7 @@ import { transactions } from '../db/schema'
 
 type DB = any
 
-const LIVING = ['food', 'transport', 'bills', 'other'] as const
+const LIVING = ['food', 'transport', 'fuel', 'groceries', 'shopping', 'bills', 'other'] as const
 
 export interface MonthlyRollup {
   incomeCents: number

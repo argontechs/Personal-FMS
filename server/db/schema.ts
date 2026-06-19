@@ -89,7 +89,7 @@ export const transactions = sqliteTable('transactions', {
   amount_cents: integer('amount_cents').notNull(),
   direction: text('direction', { enum: ['income', 'expense', 'transfer'] }).notNull(),
   category: text('category', {
-    enum: ['food', 'transport', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'],
+    enum: ['food', 'transport', 'fuel', 'groceries', 'shopping', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'],
   }).notNull(),
   // Nullable: debt-only opening-balance rows omit the account leg (account_id = null).
   account_id: integer('account_id').references(() => accounts.id),

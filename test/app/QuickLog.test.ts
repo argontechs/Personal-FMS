@@ -69,4 +69,39 @@ describe('QuickLog', () => {
     const input = wrapper.find('[data-test="amount"]').element as HTMLInputElement;
     expect(input.value).toBe('');
   });
+
+  it('renders all 7 category chips', () => {
+    const wrapper = mount(QuickLog, { props: { accountId: 1, defaultDate: '2026-06-18' } });
+    const chips = wrapper.findAll('[data-test^="cat-"]');
+    expect(chips.length).toBe(7);
+    const keys = chips.map(c => c.attributes('data-test'));
+    expect(keys).toContain('cat-food');
+    expect(keys).toContain('cat-transport');
+    expect(keys).toContain('cat-fuel');
+    expect(keys).toContain('cat-groceries');
+    expect(keys).toContain('cat-shopping');
+    expect(keys).toContain('cat-bills');
+    expect(keys).toContain('cat-other');
+  });
+
+  it("'fuel' chip enqueues with category='fuel'", async () => {
+    const wrapper = mount(QuickLog, { props: { accountId: 1, defaultDate: '2026-06-18' } });
+    await wrapper.find('[data-test="amount"]').setValue('80.00');
+    await wrapper.find('[data-test="cat-fuel"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(enqueued.length).toBe(1);
+    expect(enqueued[0].category).toBe('fuel');
+    expect(enqueued[0].amount_cents).toBe(-8000);
+    expect(enqueued[0].direction).toBe('expense');
+  });
+
+  it("'shopping' chip enqueues with category='shopping'", async () => {
+    const wrapper = mount(QuickLog, { props: { accountId: 1, defaultDate: '2026-06-18' } });
+    await wrapper.find('[data-test="amount"]').setValue('45.90');
+    await wrapper.find('[data-test="cat-shopping"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(enqueued.length).toBe(1);
+    expect(enqueued[0].category).toBe('shopping');
+    expect(enqueued[0].amount_cents).toBe(-4590);
+  });
 });
