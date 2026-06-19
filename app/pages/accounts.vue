@@ -7,7 +7,7 @@ import { computed } from 'vue'
 import { useFetch } from '#app'
 import { formatRM } from '../../shared/types'
 
-definePageMeta({ middleware: 'auth' })
+// Auth is enforced globally by app/middleware/auth.global.ts — no per-page middleware needed.
 
 // ── API data ─────────────────────────────────────────────────────────────────
 const { data: accounts, error: accountsError, refresh: refreshAccounts } =
