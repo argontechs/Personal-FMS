@@ -22,6 +22,7 @@ export default defineNuxtConfig({
     scheduledTasks: {
       // FLAT names ↔ FLAT files (server/tasks/<name>.ts). Colon = nested dir = silent no-fire.
       '0 6 * * *': ['post-recurring'],    // daily, post-MYT-midnight income/bills/loans + interest accrual
+      '30 6 * * *': ['daily-snapshot'],   // daily, just after post-recurring — Trends history (net worth/debt/card/EF/liquid)
       '*/5 * * * *': ['notify-dispatch'], // bill reminders + payday prompts (gated in code by MYT time)
       '0 9 * * 1': ['weekly-attention'],  // Monday 09:00 MYT — email fallback if push channel dies
     },

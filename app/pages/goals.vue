@@ -2,7 +2,7 @@
 <!-- §streak: Streaks & Milestones — derived from ledger, no new DB tables. -->
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useFetch } from '#app'
+import { useFetch, navigateTo } from '#app'
 
 const { data: streaks, error } = await useFetch('/api/streaks')
 
@@ -78,6 +78,38 @@ const PROGRESS_MILESTONE_KEYS = new Set(['streak-7', 'streak-30', 'ef-1000', 'ef
               Log a spend to keep your streak alive
             </p>
           </div>
+        </div>
+      </section>
+
+      <!-- ── Trends link (reaches /trends — NOT a 6th bottom tab) ── -->
+      <section class="goals-page__section">
+        <p class="section-label">Over time</p>
+        <div class="card goals-trends-link" role="button" tabindex="0"
+          data-testid="goals-trends-link"
+          aria-label="View trends over time"
+          @click="navigateTo('/trends')"
+          @keydown.enter.prevent="navigateTo('/trends')"
+          @keydown.space.prevent="navigateTo('/trends')"
+        >
+          <div class="goals-trends-link__content">
+            <!-- line-chart icon -->
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+              stroke-linejoin="round" aria-hidden="true" class="goals-trends-link__icon">
+              <path d="M3 3v18h18" />
+              <path d="m19 9-5 5-4-4-3 3" />
+            </svg>
+            <div class="goals-trends-link__text">
+              <span class="goals-trends-link__label">View trends</span>
+              <span class="goals-trends-link__sub">Net worth, card balance &amp; spend over time</span>
+            </div>
+          </div>
+          <!-- chevron right -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true" class="goals-trends-link__chevron">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
         </div>
       </section>
 
@@ -231,6 +263,54 @@ const PROGRESS_MILESTONE_KEYS = new Set(['streak-7', 'streak-30', 'ef-1000', 'ef
   font-size: 13px;
   color: var(--primary);
   font-weight: 500;
+}
+
+/* ── Trends link card ── */
+.goals-trends-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  cursor: pointer;
+  transition: transform 200ms cubic-bezier(.34,1.56,.64,1);
+  -webkit-tap-highlight-color: transparent;
+}
+.goals-trends-link:active {
+  transform: scale(0.98);
+}
+.goals-trends-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.goals-trends-link__content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.goals-trends-link__icon {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+.goals-trends-link__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.goals-trends-link__label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.goals-trends-link__sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.goals-trends-link__chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 /* ── Milestone List ── */

@@ -6,7 +6,7 @@ describe('runMigrations', () => {
   let handle: ReturnType<typeof createDb>
   afterEach(() => handle?.sqlite.close())
 
-  it('creates all 12 tables', () => {
+  it('creates all 13 tables', () => {
     handle = createDb(':memory:')
     runMigrations(handle.sqlite)
     const rows = handle.sqlite
@@ -15,7 +15,7 @@ describe('runMigrations', () => {
     const names = rows.map((r) => r.name).sort()
     expect(names).toEqual([
       'accounts', 'budgets', 'debts', 'goals', 'holdings', 'money_move_state', 'notifications_sent',
-      'push_subscriptions', 'recurring_items', 'sessions', 'transactions', 'users',
+      'push_subscriptions', 'recurring_items', 'sessions', 'snapshots', 'transactions', 'users',
     ])
   })
 

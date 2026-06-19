@@ -166,4 +166,15 @@ describe('Goals page', () => {
     await flushPromises()
     expect(w.text()).toContain('Failed to load goals')
   })
+
+  it('exposes a Trends link reaching /trends (not a 6th bottom tab)', async () => {
+    const { navigateTo } = await import('#app')
+    const w = mountGoals()
+    await flushPromises()
+    const link = w.find('[data-testid="goals-trends-link"]')
+    expect(link.exists()).toBe(true)
+    expect(w.text()).toContain('View trends')
+    await link.trigger('click')
+    expect(navigateTo).toHaveBeenCalledWith('/trends')
+  })
 })

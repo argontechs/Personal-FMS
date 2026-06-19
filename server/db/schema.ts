@@ -169,6 +169,21 @@ export const holdings = sqliteTable('holdings', {
   updated_at: integer('updated_at').notNull(),
 })
 
+// Daily metric snapshots — the history layer behind the Trends view.
+// One row per MYT date (date UNIQUE → idempotent UPSERT in the daily-snapshot task).
+// Values are frozen copies of the canonical reads (server/utils/snapshotReads.ts):
+//   net_worth = liquid + holdings − debts. ADDITIVE table — never mutates the ledger.
+export const snapshots = sqliteTable('snapshots', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  date: text('date').notNull().unique(), // MYT 'YYYY-MM-DD'
+  net_worth_cents: integer('net_worth_cents').notNull(),
+  total_debt_cents: integer('total_debt_cents').notNull(),
+  card_balance_cents: integer('card_balance_cents').notNull(),
+  ef_balance_cents: integer('ef_balance_cents').notNull(),
+  liquid_cents: integer('liquid_cents').notNull(),
+  created_at: integer('created_at').notNull(),
+})
+
 // §11/§15 money-move levers — persisted action-item status only.
 // The MOVES themselves are derived live in GET /api/money-moves; this table holds
 // only the user-chosen status per move_key. Advisory: NEVER auto-moves money.

@@ -3,9 +3,10 @@ import { eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { createDb } from './index'
 import { runMigrations } from './migrate'
-import { accounts, debts, recurringItems, goals, holdings } from './schema'
+import { accounts, debts, recurringItems, goals, holdings, snapshots } from './schema'
 import { nowEpoch, nextDueDate } from '../utils/mytDate'
 import { postTransaction } from '../utils/post'
+import { computeSnapshotMetrics } from '../utils/snapshotReads'
 
 const SEED_TODAY = '2026-06-18'
 
@@ -508,6 +509,23 @@ export function seedDatabase(db: Db): void {
       db.insert(holdings).values({ ...h, created_at: ts, updated_at: ts }).run()
     }
   }
+
+  // -------------------------------------------------------------------------
+  // Seed one initial snapshot (SEED_TODAY) so the Trends view has a starting
+  // data point. The daily-snapshot task adds one per day from here on; once a
+  // second day lands the charts render (empty state covers the single-point day).
+  // Idempotent overall via the accounts-empty bail at the top of seedDatabase.
+  // -------------------------------------------------------------------------
+  const m = computeSnapshotMetrics(db)
+  db.insert(snapshots).values({
+    date: SEED_TODAY,
+    net_worth_cents: m.netWorthCents,
+    total_debt_cents: m.totalDebtCents,
+    card_balance_cents: m.cardBalanceCents,
+    ef_balance_cents: m.efBalanceCents,
+    liquid_cents: m.liquidCents,
+    created_at: ts,
+  }).onConflictDoNothing().run()
 }
 
 // ---------------------------------------------------------------------------

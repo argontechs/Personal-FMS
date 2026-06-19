@@ -13,8 +13,16 @@ describe('nuxt.config', () => {
     const names = Object.values(c.nitro.scheduledTasks).flat()
     expect(names).toContain('post-recurring')
     expect(names).toContain('notify-dispatch')
+    expect(names).toContain('daily-snapshot')
     // No colon-namespaced names (colon → nested dir → silently never fires)
     expect(names.every((n: string) => !n.includes(':'))).toBe(true)
+  })
+  it('registers daily-snapshot under a valid 5-field cron expression', () => {
+    const entry = Object.entries(c.nitro.scheduledTasks).find(([, v]) =>
+      (v as string[]).includes('daily-snapshot'),
+    )
+    expect(entry).toBeDefined()
+    expect((entry![0] as string).split(' ')).toHaveLength(5)
   })
   it('exposes an empty runtime VAPID public key (set at runtime via env)', () => {
     expect(c.runtimeConfig.public.vapidPublicKey).toBe('')
