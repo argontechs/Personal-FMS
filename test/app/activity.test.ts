@@ -490,6 +490,124 @@ describe('Activity page', () => {
       expect(sheet!.textContent).toContain('Enter a positive amount')
     })
 
+    // ── Direction-aware edit (ledger-corruption regression) ────────────────────
+    it('editing an income amount keeps it income: PATCH sends positive amount + direction=income + category=income', async () => {
+      const incomeTxn = makeTxn({
+        id: 40,
+        date: '2026-06-19',
+        amount_cents: 200000, // +RM2000
+        direction: 'income',
+        category: 'income',
+        note: 'Salary',
+      })
+      // Server echoes back a correctly-signed income row.
+      const patchResult = makeTxn({
+        id: 40,
+        amount_cents: 250000,
+        direction: 'income',
+        category: 'income',
+        date: '2026-06-19',
+        note: 'Salary',
+      })
+
+      const w = mountActivity(async (url: string, opts?: any) => {
+        if (opts?.method === 'PATCH') return patchResult
+        if (url.startsWith('/api/transactions')) return [incomeTxn]
+        return []
+      })
+      await flushPromises()
+
+      // Open edit sheet on the income row
+      await w.find('.list-row__main').trigger('click')
+      await w.vm.$nextTick()
+
+      // Income rows must NOT show the spend-category picker — they show the Income badge.
+      expect(document.querySelector('[data-test="edit-income-badge"]')).not.toBeNull()
+      expect(document.querySelector('[data-test="edit-cat-food"]')).toBeNull()
+
+      // Change the amount to RM2500
+      const amountInput = document.querySelector('#edit-amount') as HTMLInputElement
+      amountInput.value = '2500.00'
+      amountInput.dispatchEvent(new Event('input', { bubbles: true }))
+      await w.vm.$nextTick()
+
+      // Save
+      ;(document.querySelector('.edit-sheet__save') as HTMLElement).click()
+      await flushPromises()
+
+      // PATCH body must keep it income: positive amount, direction=income, category=income
+      const calls = (globalThis.$fetch as any).mock.calls
+      const patchCall = calls.find((c: any[]) => c[1]?.method === 'PATCH')
+      expect(patchCall).toBeTruthy()
+      expect(patchCall[1].body.amount_cents).toBe(250000) // POSITIVE, not negated
+      expect(patchCall[1].body.direction).toBe('income')
+      expect(patchCall[1].body.category).toBe('income')
+
+      // The row still renders as income (+RM, green)
+      const amounts = w.findAll('.list-row__amount')
+      expect(amounts[0].classes()).toContain('list-row__amount--income')
+      expect(amounts[0].text()).toMatch(/\+RM2[,.]?500\.00/)
+    })
+
+    it('editing an expense amount keeps it expense: PATCH sends negative amount + direction=expense', async () => {
+      const patchResult = makeTxn({ id: 1, amount_cents: -3000, category: 'food', direction: 'expense', date: '2026-06-19' })
+
+      const w = mountActivity(async (url: string, opts?: any) => {
+        if (opts?.method === 'PATCH') return patchResult
+        if (url.startsWith('/api/transactions')) return [makeTxn({ id: 1, amount_cents: -1250, category: 'food', direction: 'expense' })]
+        return []
+      })
+      await flushPromises()
+
+      await w.find('.list-row__main').trigger('click')
+      await w.vm.$nextTick()
+
+      // Expense rows show the spend picker, not the income badge.
+      expect(document.querySelector('[data-test="edit-cat-food"]')).not.toBeNull()
+      expect(document.querySelector('[data-test="edit-income-badge"]')).toBeNull()
+
+      const amountInput = document.querySelector('#edit-amount') as HTMLInputElement
+      amountInput.value = '30.00'
+      amountInput.dispatchEvent(new Event('input', { bubbles: true }))
+      await w.vm.$nextTick()
+
+      ;(document.querySelector('.edit-sheet__save') as HTMLElement).click()
+      await flushPromises()
+
+      const calls = (globalThis.$fetch as any).mock.calls
+      const patchCall = calls.find((c: any[]) => c[1]?.method === 'PATCH')
+      expect(patchCall).toBeTruthy()
+      expect(patchCall[1].body.amount_cents).toBe(-3000) // NEGATIVE
+      expect(patchCall[1].body.direction).toBe('expense')
+      expect(patchCall[1].body.category).toBe('food')
+
+      const amounts = w.findAll('.list-row__amount')
+      expect(amounts[0].classes()).toContain('list-row__amount--expense')
+      expect(amounts[0].text()).toContain('-RM30.00')
+    })
+
+    it('saving an income edit does NOT require a spend category (no validation error)', async () => {
+      const incomeTxn = makeTxn({ id: 41, amount_cents: 100000, direction: 'income', category: 'income', note: null })
+      const w = mountActivity(async (url: string, opts?: any) => {
+        if (opts?.method === 'PATCH') return makeTxn({ id: 41, amount_cents: 100000, direction: 'income', category: 'income' })
+        if (url.startsWith('/api/transactions')) return [incomeTxn]
+        return []
+      })
+      await flushPromises()
+
+      await w.find('.list-row__main').trigger('click')
+      await w.vm.$nextTick()
+
+      ;(document.querySelector('.edit-sheet__save') as HTMLElement).click()
+      await flushPromises()
+
+      // No "Select a category" error, and the sheet closed (PATCH succeeded).
+      const sheet = document.querySelector('[data-testid="edit-sheet"]')
+      expect(sheet).toBeNull()
+      const calls = (globalThis.$fetch as any).mock.calls
+      expect(calls.some((c: any[]) => c[1]?.method === 'PATCH')).toBe(true)
+    })
+
     it('closes the sheet when Cancel is clicked', async () => {
       const w = mountActivity()
       await flushPromises()

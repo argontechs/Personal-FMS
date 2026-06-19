@@ -244,6 +244,15 @@ const editDate = ref('')
 const editErrors = ref<Record<string, string>>({})
 const editSaving = ref(false)
 
+// Direction-aware edit: an income row stays income (positive, 'income' category, green +RM),
+// an expense stays expense (negative, spend category). We freeze the direction at open-time
+// so the sheet never reclassifies the row — the spend-category picker is hidden for income.
+const editIsIncome = computed(
+  () =>
+    editTarget.value != null &&
+    (editTarget.value.direction === 'income' || editTarget.value.category === 'income'),
+)
+
 function openEdit(txn: Transaction) {
   editTarget.value = txn
   editAmountRm.value = (Math.abs(txn.amount_cents) / 100).toFixed(2)
@@ -268,7 +277,9 @@ function validateEdit(): boolean {
   if (!editAmountRm.value || isNaN(amt) || amt <= 0) {
     errs.amount = 'Enter a positive amount'
   }
-  if (!SPEND_CATEGORIES.find(c => c.key === editCategory.value)) {
+  // Only expense rows pick a spend category; income rows keep the 'income' category
+  // (the spend picker is hidden for them) so they must NOT be validated against SPEND_CATEGORIES.
+  if (!editIsIncome.value && !SPEND_CATEGORIES.find(c => c.key === editCategory.value)) {
     errs.category = 'Select a category'
   }
   if (!editDate.value || !/^\d{4}-\d{2}-\d{2}$/.test(editDate.value)) {
@@ -283,15 +294,22 @@ async function saveEdit() {
   if (!validateEdit()) return
   editSaving.value = true
 
+  const isIncome = editIsIncome.value
   const newAmountCents = Math.round(parseFloat(editAmountRm.value) * 100)
-  const signedCents = isExpense(editTarget.value) ? -newAmountCents : newAmountCents
+  // Direction is preserved from the original row, never inferred from the chips.
+  // Canonical sign: income positive, expense negative.
+  const direction = isIncome ? 'income' : 'expense'
+  const signedCents = isIncome ? newAmountCents : -newAmountCents
+  // Income keeps its 'income' category; expense keeps the chosen spend category.
+  const category = isIncome ? 'income' : editCategory.value
 
   try {
     const updated = await $fetch<Transaction>(`/api/transactions/${editTarget.value.id}`, {
       method: 'PATCH',
       body: {
         amount_cents: signedCents,
-        category: editCategory.value,
+        direction,
+        category,
         note: editNote.value || null,
         date: editDate.value,
       },
@@ -473,10 +491,20 @@ async function saveEdit() {
             <span v-if="editErrors.amount" id="edit-amount-err" class="edit-sheet__error" role="alert">{{ editErrors.amount }}</span>
           </div>
 
-          <!-- Category chips -->
+          <!-- Category: expense rows pick a spend chip; income rows are fixed to 'Income' -->
           <div class="edit-sheet__field">
             <p class="edit-sheet__label">Category</p>
-            <div class="edit-sheet__chips" role="group" aria-label="Select category">
+            <!-- Income: read-only badge — no spend picker, so the row can't be reclassified -->
+            <div
+              v-if="editIsIncome"
+              class="edit-sheet__income-badge"
+              data-test="edit-income-badge"
+            >
+              <CategoryIcon category="income" />
+              Income
+            </div>
+            <!-- Expense: spend-category chips -->
+            <div v-else class="edit-sheet__chips" role="group" aria-label="Select category">
               <button
                 v-for="cat in SPEND_CATEGORIES"
                 :key="cat.key"
@@ -913,6 +941,21 @@ async function saveEdit() {
 .edit-sheet__chip:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+.edit-sheet__income-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1.5px solid var(--positive);
+  border-radius: var(--radius-chip);
+  background: rgba(22, 163, 74, 0.08);
+  color: var(--positive);
+  font-size: 14px;
+  font-weight: 600;
+  min-height: 44px;
+  align-self: flex-start;
 }
 
 .edit-sheet__error {

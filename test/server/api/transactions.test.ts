@@ -213,6 +213,71 @@ describe('transactions API — PATCH edits + recomputes', () => {
     expect(bAfterPatch - bAfterPost).toBe(3000)
   })
 
+  it('PATCH preserves income direction + positive sign when editing an income amount', async () => {
+    // Post an income transaction (+RM2000 salary).
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'inc-edit-1', date: '2026-06-18', amount_cents: 200000, direction: 'income', category: 'income', account_id: bankId, source: 'manual' },
+    })
+
+    // Edit the amount to +RM2500, sending direction=income + positive amount (what the fixed sheet sends).
+    const updated = await authFetch(`/api/transactions/${id}`, {
+      method: 'PATCH',
+      body: { amount_cents: 250000, direction: 'income', category: 'income' },
+    })
+
+    // Stays income, stays positive — NOT reclassified to expense / negative.
+    expect(updated.direction).toBe('income')
+    expect(updated.category).toBe('income')
+    expect(updated.amount_cents).toBe(250000)
+    expect(updated.amount_cents).toBeGreaterThan(0)
+  })
+
+  it('PATCH preserves expense direction + negative sign when editing an expense amount', async () => {
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'exp-edit-1', date: '2026-06-18', amount_cents: -1250, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' },
+    })
+
+    const updated = await authFetch(`/api/transactions/${id}`, {
+      method: 'PATCH',
+      body: { amount_cents: -3000, direction: 'expense', category: 'food' },
+    })
+
+    expect(updated.direction).toBe('expense')
+    expect(updated.category).toBe('food')
+    expect(updated.amount_cents).toBe(-3000)
+    expect(updated.amount_cents).toBeLessThan(0)
+  })
+
+  it('PATCH rejects an income with a negative amount (sign/direction invariant)', async () => {
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'inc-bad-sign', date: '2026-06-18', amount_cents: 100000, direction: 'income', category: 'income', account_id: bankId, source: 'manual' },
+    })
+    // Sending a negative amount while the row is income must be rejected (would corrupt balances).
+    await expect(authFetch(`/api/transactions/${id}`, { method: 'PATCH', body: { amount_cents: -100000 } }))
+      .rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('PATCH rejects an expense with a positive amount (sign/direction invariant)', async () => {
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'exp-bad-sign', date: '2026-06-18', amount_cents: -5000, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' },
+    })
+    await expect(authFetch(`/api/transactions/${id}`, { method: 'PATCH', body: { amount_cents: 5000 } }))
+      .rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('PATCH rejects an unknown direction value', async () => {
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'dir-bad', date: '2026-06-18', amount_cents: -100, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' },
+    })
+    await expect(authFetch(`/api/transactions/${id}`, { method: 'PATCH', body: { direction: 'sideways' } }))
+      .rejects.toMatchObject({ statusCode: 400 })
+  })
+
   it('PATCH returns 404 for a non-existent id', async () => {
     await expect(authFetch('/api/transactions/999999', { method: 'PATCH', body: { note: 'x' } }))
       .rejects.toMatchObject({ statusCode: 404 })

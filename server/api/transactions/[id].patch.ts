@@ -6,6 +6,9 @@ import { recomputeBalances } from '../../utils/post'
 import { eq } from 'drizzle-orm'
 
 const VALID_CATEGORIES = ['food', 'transport', 'car', 'fuel', 'groceries', 'shopping', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'] as const
+// transfer rows exist in the ledger but are not editable through this sheet; direction must be a
+// known enum value. We accept income/expense/transfer to preserve whatever the row already was.
+const VALID_DIRECTIONS = ['income', 'expense', 'transfer'] as const
 
 export default defineEventHandler(async (event) => {
   requireSession(event)
@@ -22,6 +25,12 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: 'amount_cents must be an integer' })
     }
     patch.amount_cents = body.amount_cents
+  }
+  if (typeof body.direction === 'string') {
+    if (!VALID_DIRECTIONS.includes(body.direction as any)) {
+      throw createError({ statusCode: 400, statusMessage: `direction must be one of: ${VALID_DIRECTIONS.join(', ')}` })
+    }
+    patch.direction = body.direction
   }
   if (typeof body.category === 'string') {
     if (!VALID_CATEGORIES.includes(body.category as any)) {
@@ -43,9 +52,23 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'nothing to patch' })
   }
 
-  const existing = db.select({ id: transactions.id }).from(transactions).where(eq(transactions.id, id)).get()
+  const existing = db.select({ id: transactions.id, amount_cents: transactions.amount_cents, direction: transactions.direction })
+    .from(transactions).where(eq(transactions.id, id)).get()
   if (!existing) {
     throw createError({ statusCode: 404, statusMessage: 'transaction not found' })
+  }
+
+  // Canonical sign invariant: income amount_cents must be >= 0, expense must be <= 0.
+  // Resolve the EFFECTIVE (post-patch) direction + amount and enforce they agree, so a partial
+  // PATCH (e.g. amount only, or direction only) can never persist a sign that contradicts the
+  // direction and corrupt single-ledger balances.
+  const effDirection = (patch.direction ?? existing.direction) as string
+  const effAmount = (patch.amount_cents ?? existing.amount_cents) as number
+  if (effDirection === 'income' && effAmount < 0) {
+    throw createError({ statusCode: 400, statusMessage: 'income amount_cents must be non-negative' })
+  }
+  if (effDirection === 'expense' && effAmount > 0) {
+    throw createError({ statusCode: 400, statusMessage: 'expense amount_cents must be non-positive' })
   }
 
   db.update(transactions).set(patch).where(eq(transactions.id, id)).run()
