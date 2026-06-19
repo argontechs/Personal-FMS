@@ -300,6 +300,36 @@ describe('Activity page', () => {
       expect(postCall[1].body.uuid).toBeTruthy()
       expect(typeof postCall[1].body.uuid).toBe('string')
     })
+
+    it('undo double-post guard: tapping Undo twice produces exactly one POST', async () => {
+      // Track all POST calls to /api/transactions
+      let postCount = 0
+      const w = mountActivity(async (url: string, opts?: any) => {
+        if (opts?.method === 'DELETE') return { ok: true }
+        if (opts?.method === 'POST' && url === '/api/transactions') {
+          postCount++
+          return { id: 50 }
+        }
+        if (url.startsWith('/api/transactions')) return [...mockTransactions]
+        return []
+      })
+      await flushPromises()
+
+      // Delete the first row to get the undo toast
+      await w.find('.list-row__delete').trigger('click')
+      await flushPromises()
+
+      const undoBtn = w.find('.activity__toast-undo')
+      expect(undoBtn.exists()).toBe(true)
+
+      // Tap Undo twice in rapid succession — second tap must be a no-op
+      await undoBtn.trigger('click')
+      await undoBtn.trigger('click')
+      await flushPromises()
+
+      // Exactly one POST must have been issued despite two taps
+      expect(postCount).toBe(1)
+    })
   })
 
   // ── Edit sheet ───────────────────────────────────────────────────────────────

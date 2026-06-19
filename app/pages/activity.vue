@@ -149,8 +149,12 @@ interface ToastState {
 
 const toast = ref<ToastState>({ visible: false, message: '', undoFn: null, timer: null })
 
+// Re-entry guard: prevents double-tap from invoking undo twice in parallel.
+const undoInFlight = ref(false)
+
 function showToast(message: string, undoFn: () => Promise<void>) {
   if (toast.value.timer) clearTimeout(toast.value.timer)
+  undoInFlight.value = false // reset guard for this new toast
   toast.value = {
     visible: true,
     message,
@@ -175,13 +179,17 @@ async function deleteTransaction(txn: Transaction) {
     return
   }
 
+  // Capture the restore UUID once at toast-creation time.
+  // The undo handler reuses this same UUID on every invocation — idempotent on server.
+  const restoreUuid = crypto.randomUUID()
+
   // Show undo toast
   showToast('Transaction deleted', async () => {
     try {
       await $fetch<{ id: number }>('/api/transactions', {
         method: 'POST',
         body: {
-          uuid: crypto.randomUUID(),
+          uuid: restoreUuid,
           date: txn.date,
           amount_cents: txn.amount_cents,
           direction: txn.direction,
@@ -204,6 +212,9 @@ async function deleteTransaction(txn: Transaction) {
 }
 
 async function handleUndo() {
+  // Re-entry guard: first tap sets undoInFlight → subsequent taps are no-ops.
+  if (undoInFlight.value) return
+  undoInFlight.value = true
   if (toast.value.undoFn) {
     if (toast.value.timer) clearTimeout(toast.value.timer)
     await toast.value.undoFn()
@@ -407,7 +418,12 @@ async function saveEdit() {
       data-testid="undo-toast"
     >
       <span class="activity__toast-msg">{{ toast.message }}</span>
-      <button class="activity__toast-undo" @click="handleUndo">Undo</button>
+      <button
+        class="activity__toast-undo"
+        :disabled="undoInFlight"
+        :aria-disabled="undoInFlight"
+        @click="handleUndo"
+      >Undo</button>
     </div>
 
     <!-- ── Edit bottom sheet ──────────────────────────────────────────── -->
@@ -778,6 +794,11 @@ async function saveEdit() {
   outline: 2px solid #60A5FA;
   outline-offset: 2px;
   border-radius: 4px;
+}
+.activity__toast-undo:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* ── Edit overlay + sheet ─────────────────────────────────────────────── */

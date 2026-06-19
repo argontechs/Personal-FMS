@@ -2,12 +2,61 @@
      Default authenticated layout: top header (app name + logout) + page slot + bottom nav.
      Login page bypasses this layout entirely (uses definePageMeta({ layout: false })). -->
 <script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue'
 import { navigateTo } from '#app'
 import BottomNav from '~/components/BottomNav.vue'
+import { deadLetterCount, useOfflineQueue } from '~/composables/useOfflineQueue'
 
 async function handleLogout() {
   await $fetch('/api/auth/logout', { method: 'POST' })
   await navigateTo('/login')
+}
+
+// ── Offline indicator ────────────────────────────────────────────────────────
+const isOffline = ref(false)
+
+function handleOnline() { isOffline.value = false }
+function handleOffline() { isOffline.value = true }
+
+onMounted(() => {
+  isOffline.value = !navigator.onLine
+  window.addEventListener('online', handleOnline)
+  window.addEventListener('offline', handleOffline)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('online', handleOnline)
+  window.removeEventListener('offline', handleOffline)
+})
+
+// ── Dead-letter banner actions ────────────────────────────────────────────────
+const { flush, readDeadLetterItems } = useOfflineQueue()
+
+/** Retry: clear dead-letter store and re-enqueue items, then flush. */
+async function retryDeadLetters() {
+  const items = await readDeadLetterItems()
+  if (!items.length) return
+  // Open the DB to wipe the dead-letter store, then re-enqueue each item
+  const { openDB } = await import('idb')
+  const db = await openDB('money-fms', 2)
+  for (const item of items) {
+    await db.delete('dead_txns', item.uuid)
+    // Re-put into pending with reset attempt counter
+    await db.put('pending_txns', { ...item, attempts: 0, nextRetryAt: 0, deadLetteredAt: undefined })
+  }
+  deadLetterCount.value = 0
+  await flush()
+}
+
+/** Discard: silently remove all dead-lettered items. */
+async function discardDeadLetters() {
+  const { openDB } = await import('idb')
+  const db = await openDB('money-fms', 2)
+  const items = await db.getAll('dead_txns')
+  for (const item of items) {
+    await db.delete('dead_txns', item.uuid)
+  }
+  deadLetterCount.value = 0
 }
 </script>
 
@@ -33,6 +82,50 @@ async function handleLogout() {
         <span class="app-header__logout-label">Log out</span>
       </button>
     </header>
+
+    <!-- Offline indicator -->
+    <div
+      v-if="isOffline"
+      class="sync-banner sync-banner--offline"
+      role="status"
+      aria-live="polite"
+    >
+      <!-- wifi-off icon -->
+      <svg class="sync-banner__icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14"
+        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="1" y1="1" x2="23" y2="23"/>
+        <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
+        <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/>
+        <path d="M10.71 5.05A16 16 0 0 1 22.56 9"/>
+        <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/>
+        <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+        <line x1="12" y1="20" x2="12.01" y2="20"/>
+      </svg>
+      <span>You're offline — changes will sync when reconnected</span>
+    </div>
+
+    <!-- Dead-letter sync warning banner -->
+    <div
+      v-if="deadLetterCount > 0"
+      class="sync-banner sync-banner--warn"
+      role="status"
+      aria-live="polite"
+    >
+      <!-- alert-circle icon -->
+      <svg class="sync-banner__icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14"
+        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span class="sync-banner__msg">
+        {{ deadLetterCount }} {{ deadLetterCount === 1 ? 'entry' : 'entries' }} couldn't sync
+      </span>
+      <button class="sync-banner__action" type="button" @click="retryDeadLetters">Retry</button>
+      <button class="sync-banner__action sync-banner__action--ghost" type="button" @click="discardDeadLetters">Discard</button>
+    </div>
 
     <!-- Page content — padded-bottom so nothing hides behind the nav -->
     <main class="app-content">
@@ -105,6 +198,77 @@ async function handleLogout() {
 .app-header__logout-label {
   /* hide on very small screens if needed; always visible at 375px */
   font-size: 13px;
+}
+
+/* ── Sync / offline banners ───────────────────────────────── */
+.sync-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  /* reduced-motion: no animation — just appears/disappears */
+}
+
+.sync-banner--offline {
+  background: var(--surface-2, #f1f5f9);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.sync-banner--warn {
+  background: #fefce8;
+  color: #92400e;
+  border-bottom: 1px solid #fde68a;
+}
+
+/* dark-mode: invert the amber tones */
+@media (prefers-color-scheme: dark) {
+  .sync-banner--warn {
+    background: rgba(234, 179, 8, 0.12);
+    color: #fbbf24;
+    border-bottom-color: rgba(234, 179, 8, 0.25);
+  }
+}
+
+.sync-banner__icon {
+  flex-shrink: 0;
+}
+
+.sync-banner__msg {
+  flex: 1;
+}
+
+.sync-banner__action {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1.5px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-base);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 120ms ease-out;
+}
+.sync-banner__action:hover {
+  opacity: 0.75;
+}
+.sync-banner__action:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.sync-banner__action--ghost {
+  border-color: transparent;
+  opacity: 0.7;
+}
+.sync-banner__action--ghost:hover {
+  opacity: 1;
 }
 
 /* ── Page content ─────────────────────────────────────────── */

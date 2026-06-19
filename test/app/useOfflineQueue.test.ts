@@ -13,7 +13,7 @@ import {
   IDBTransaction,
   IDBVersionChangeEvent,
 } from 'fake-indexeddb';
-import { useOfflineQueue, registerAutoFlush, __resetFlushState, getLastEnqueueFlush } from '../../app/composables/useOfflineQueue';
+import { useOfflineQueue, registerAutoFlush, __resetFlushState, getLastEnqueueFlush, deadLetterCount } from '../../app/composables/useOfflineQueue';
 // Import the plugin default export (will be a function due to defineNuxtPlugin shim)
 import offlineFlushPlugin from '../../app/plugins/offline-flush.client';
 
@@ -150,6 +150,64 @@ describe('useOfflineQueue', () => {
     await getLastEnqueueFlush();
     // flush was attempted but failed — item must remain queued
     expect((await q.pending()).length).toBe(1);
+  });
+
+  it('4xx (permanent) response dead-letters the item immediately — never retried', async () => {
+    // Simulate a 400 Bad Request — permanent client error, should dead-letter on first failure.
+    const err = Object.assign(new Error('Bad Request'), { status: 400 });
+    // @ts-expect-error global injected by Nuxt
+    globalThis.$fetch = vi.fn(async () => { throw err; });
+
+    const q = useOfflineQueue();
+    await q.enqueue({ date: '2026-06-18', amount_cents: -999, direction: 'expense', category: 'food', account_id: 1 });
+
+    const res = await q.flush();
+    // Item removed from pending queue (dead-lettered, not retried)
+    expect(res.remaining).toBe(0);
+    expect((await q.pending()).length).toBe(0);
+    // Dead-letter store now has 1 item and the reactive count reflects it
+    const deadItems = await q.readDeadLetterItems();
+    expect(deadItems.length).toBe(1);
+    expect(deadLetterCount.value).toBe(1);
+  });
+
+  it('5xx (transient) keeps item queued with incremented attempt; dead-letters after 6 attempts', async () => {
+    // Simulate a 500 Internal Server Error — transient, should retry with backoff.
+    const err = Object.assign(new Error('Internal Server Error'), { status: 500 });
+    // @ts-expect-error global injected by Nuxt
+    globalThis.$fetch = vi.fn(async () => { throw err; });
+
+    // Override Date.now so nextRetryAt is always in the past (elapsed immediately)
+    const realDateNow = Date.now;
+    let fakeNow = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => fakeNow);
+
+    const q = useOfflineQueue();
+    await q.enqueue({ date: '2026-06-18', amount_cents: -888, direction: 'expense', category: 'transport', account_id: 1 });
+
+    // Each flush call must advance fakeNow past nextRetryAt so the backoff delay is bypassed.
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      fakeNow += 400_000; // well past any backoff cap
+      const res = await q.flush();
+      expect(res.remaining).toBe(1); // still queued after attempts 1–5
+      expect((await q.pending()).length).toBe(1);
+      expect(deadLetterCount.value).toBe(0);
+      // Reset the in-flight guard so next iteration can flush again
+      __resetFlushState();
+      // Keep IDB open: re-opening is fine since only the singleton guards were reset
+    }
+
+    // 6th failure → dead-letter
+    fakeNow += 400_000;
+    const finalRes = await q.flush();
+    expect(finalRes.remaining).toBe(0);
+    expect((await q.pending()).length).toBe(0);
+    const deadItems = await q.readDeadLetterItems();
+    expect(deadItems.length).toBe(1);
+    expect(deadLetterCount.value).toBe(1);
+
+    vi.restoreAllMocks();
+    Date.now = realDateNow;
   });
 });
 

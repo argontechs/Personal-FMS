@@ -1,4 +1,5 @@
 // app/composables/useOfflineQueue.ts
+import { ref, type Ref } from 'vue';
 import { openDB, type IDBPDatabase } from 'idb';
 
 export interface QueuedTxn {
@@ -11,8 +12,16 @@ export interface QueuedTxn {
   note?: string;
 }
 
+/** Internal shape stored in IDB — extends QueuedTxn with retry metadata. */
+interface QueuedTxnInternal extends QueuedTxn {
+  attempts: number;       // how many failed flush attempts so far
+  nextRetryAt: number;    // epoch-ms: don't flush before this timestamp
+}
+
 const DB_NAME = 'money-fms';
 const STORE = 'pending_txns';
+const DEAD_LETTER_STORE = 'dead_txns';
+const MAX_ATTEMPTS = 6;
 
 // Simple in-flight guard: prevents concurrent flush calls from double-posting.
 let flushInFlight: Promise<{ flushed: number; remaining: number }> | null = null;
@@ -22,19 +31,65 @@ let flushInFlight: Promise<{ flushed: number; remaining: number }> | null = null
 // callers never need this — they fire-and-forget via enqueue() as before.
 let lastEnqueueFlush: Promise<{ flushed: number; remaining: number }> | null = null;
 
+/** Reactive count of dead-lettered items. Updated after every flush. */
+export const deadLetterCount: Ref<number> = ref(0);
+
 async function getDb(): Promise<IDBPDatabase> {
-  return openDB(DB_NAME, 1, {
-    upgrade(db) {
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: 'uuid' }); // uuid is the idempotency key
+  return openDB(DB_NAME, 2, {
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        if (!db.objectStoreNames.contains(STORE)) {
+          db.createObjectStore(STORE, { keyPath: 'uuid' }); // uuid is the idempotency key
+        }
+      }
+      if (oldVersion < 2) {
+        if (!db.objectStoreNames.contains(DEAD_LETTER_STORE)) {
+          db.createObjectStore(DEAD_LETTER_STORE, { keyPath: 'uuid' });
+        }
       }
     },
   });
 }
 
+/**
+ * Returns true for transient errors that should be retried:
+ * network failures (no status), 5xx, 408 (Request Timeout), 429 (Too Many Requests).
+ * Returns false for permanent 4xx errors (except 408/429) → dead-letter.
+ */
+function isTransient(error: unknown): boolean {
+  const status = (error as any)?.status ?? (error as any)?.statusCode ?? (error as any)?.response?.status;
+  if (status === undefined || status === null) {
+    // Network error (no HTTP response) — always transient
+    return true;
+  }
+  if (status === 408 || status === 429) return true;
+  if (status >= 500) return true;
+  // 4xx (400–407, 410–428, 430–499) = permanent client error
+  return false;
+}
+
+/**
+ * Simple exponential backoff: cap at ~5 minutes (300_000 ms).
+ * attempt 1 → 2s, 2 → 4s, 3 → 8s, 4 → 16s, 5 → 32s, 6 → dead-letter
+ */
+function nextRetryDelay(attempt: number): number {
+  return Math.min(2_000 * Math.pow(2, attempt - 1), 300_000);
+}
+
+/** Refresh the reactive dead-letter count from IDB. */
+async function refreshDeadLetterCount(db: IDBPDatabase): Promise<void> {
+  const count = await db.count(DEAD_LETTER_STORE);
+  deadLetterCount.value = count;
+}
+
 export function useOfflineQueue() {
   async function enqueue(input: Omit<QueuedTxn, 'uuid'> & { uuid?: string }): Promise<QueuedTxn> {
-    const txn: QueuedTxn = { ...input, uuid: input.uuid ?? crypto.randomUUID() };
+    const txn: QueuedTxnInternal = {
+      ...input,
+      uuid: input.uuid ?? crypto.randomUUID(),
+      attempts: 0,
+      nextRetryAt: 0,
+    };
     const db = await getDb();
     await db.put(STORE, txn); // put = upsert; re-enqueue of the same uuid is a no-op write
     // Best-effort immediate sync: write to IDB first (offline-first guaranteed above),
@@ -48,12 +103,16 @@ export function useOfflineQueue() {
         return { flushed: 0, remaining: -1 };
       });
     }
-    return txn;
+    // Return the public QueuedTxn shape (strip internal retry fields)
+    const { attempts: _a, nextRetryAt: _n, ...publicTxn } = txn;
+    return publicTxn;
   }
 
   async function pending(): Promise<QueuedTxn[]> {
     const db = await getDb();
-    return db.getAll(STORE);
+    const rows = (await db.getAll(STORE)) as QueuedTxnInternal[];
+    // Strip internal fields before exposing
+    return rows.map(({ attempts: _a, nextRetryAt: _n, ...t }) => t);
   }
 
   async function flush(): Promise<{ flushed: number; remaining: number }> {
@@ -61,30 +120,64 @@ export function useOfflineQueue() {
     if (flushInFlight) return flushInFlight;
     flushInFlight = (async () => {
       const db = await getDb();
-      const items: QueuedTxn[] = await db.getAll(STORE);
+      const items: QueuedTxnInternal[] = await db.getAll(STORE);
+      const now = Date.now();
       let flushed = 0;
       for (const item of items) {
+        // Backoff: skip items that aren't due for retry yet
+        if (item.nextRetryAt > now) continue;
+
         try {
-          await (globalThis as any).$fetch('/api/transactions', { method: 'POST', body: { ...item, source: 'manual' } });
-          await db.delete(STORE, item.uuid); // only remove after the server acks (idempotent on uuid)
+          await (globalThis as any).$fetch('/api/transactions', {
+            method: 'POST',
+            body: { ...item, source: 'manual', attempts: undefined, nextRetryAt: undefined },
+          });
+          await db.delete(STORE, item.uuid); // only remove after server acks (idempotent on uuid)
           flushed++;
-        } catch {
-          // leave it queued; next flush (app open / reconnect) retries. Server upsert dedupes.
+        } catch (err: unknown) {
+          if (isTransient(err)) {
+            // Transient: increment attempts + backoff, or dead-letter after cap
+            const newAttempts = (item.attempts ?? 0) + 1;
+            if (newAttempts >= MAX_ATTEMPTS) {
+              // Exceeded retry cap → move to dead-letter
+              await db.put(DEAD_LETTER_STORE, { ...item, attempts: newAttempts, deadLetteredAt: Date.now() });
+              await db.delete(STORE, item.uuid);
+            } else {
+              const updatedItem: QueuedTxnInternal = {
+                ...item,
+                attempts: newAttempts,
+                nextRetryAt: Date.now() + nextRetryDelay(newAttempts),
+              };
+              await db.put(STORE, updatedItem);
+            }
+          } else {
+            // Permanent 4xx → dead-letter immediately, no more retries
+            await db.put(DEAD_LETTER_STORE, { ...item, deadLetteredAt: Date.now() });
+            await db.delete(STORE, item.uuid);
+          }
         }
       }
+      await refreshDeadLetterCount(db);
       const remaining = (await db.getAll(STORE)).length;
       return { flushed, remaining };
     })().finally(() => { flushInFlight = null; });
     return flushInFlight;
   }
 
-  return { enqueue, pending, flush };
+  /** Returns all dead-lettered items (items that will never be retried automatically). */
+  async function readDeadLetterItems(): Promise<(QueuedTxn & { deadLetteredAt: number })[]> {
+    const db = await getDb();
+    return db.getAll(DEAD_LETTER_STORE);
+  }
+
+  return { enqueue, pending, flush, readDeadLetterItems };
 }
 
 /** Test-only: resets the module-level singletons between test cases. */
 export function __resetFlushState() {
   flushInFlight = null;
   lastEnqueueFlush = null;
+  deadLetterCount.value = 0;
 }
 
 /**
