@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { createDb } from './index'
 import { runMigrations } from './migrate'
-import { accounts, debts, recurringItems, goals } from './schema'
+import { accounts, debts, recurringItems, goals, holdings } from './schema'
 import { nowEpoch, nextDueDate } from '../utils/mytDate'
 import { postTransaction } from '../utils/post'
 
@@ -469,6 +469,25 @@ export function seedDatabase(db: Db): void {
     status: 'active',
     ...base,
   }).run()
+
+  // -------------------------------------------------------------------------
+  // Holdings (7): AIA, ASNB, Great Eastern — total 14,364,997 sen
+  // Idempotent: bail if any holdings rows already exist.
+  // -------------------------------------------------------------------------
+  if (db.select().from(holdings).all().length === 0) {
+    const holdingRows = [
+      { name: 'ASN Sara 1',              institution: 'ASNB',          kind: 'savings'    as const, current_value_cents: 2600,    liquid: 1, note: null,                                                                          sort_order: 1 },
+      { name: 'ASN Equity 5',            institution: 'ASNB',          kind: 'savings'    as const, current_value_cents: 10124,   liquid: 1, note: null,                                                                          sort_order: 2 },
+      { name: 'ASM 3',                   institution: 'ASNB',          kind: 'savings'    as const, current_value_cents: 20000,   liquid: 1, note: null,                                                                          sort_order: 3 },
+      { name: 'A-LifeJoy',               institution: 'AIA',           kind: 'investment' as const, current_value_cents: 534080,  liquid: 0, note: 'Investment-linked — keep',                                                   sort_order: 4 },
+      { name: 'AIA Assurance Account',   institution: 'AIA',           kind: 'investment' as const, current_value_cents: 6352297, liquid: 1, note: 'May allow low-penalty partial withdrawal — the lever to clear the 18% card', sort_order: 5 },
+      { name: 'Empower Edu Plan',        institution: 'AIA',           kind: 'investment' as const, current_value_cents: 7303270, liquid: 0, note: 'Locked — education purpose; do not surrender',                              sort_order: 6 },
+      { name: 'GE Critical Illness',     institution: 'Great Eastern', kind: 'insurance'  as const, current_value_cents: 142626,  liquid: 0, note: 'Protection — keep',                                                          sort_order: 7 },
+    ]
+    for (const h of holdingRows) {
+      db.insert(holdings).values({ ...h, created_at: ts, updated_at: ts }).run()
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

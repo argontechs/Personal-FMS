@@ -24,11 +24,11 @@ beforeAll(async () => {
   runMigrations(handle.sqlite)
   seedDatabase(handle.db)
   await bootstrapUser(handle.db, 'owner', 'smoke-pass-123')
-  // Verify all 10 tables exist post-migrate+seed.
+  // Verify all 11 tables exist post-migrate+seed.
   const tables = handle.sqlite
     .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle%'`)
     .all() as { name: string }[]
-  expect(tables).toHaveLength(10)
+  expect(tables).toHaveLength(11)
   handle.sqlite.close()
 })
 

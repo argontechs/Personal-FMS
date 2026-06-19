@@ -153,3 +153,16 @@ export const budgets = sqliteTable('budgets', {
   created_at: integer('created_at').notNull(),
   updated_at: integer('updated_at').notNull(),
 })
+
+export const holdings = sqliteTable('holdings', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  institution: text('institution').notNull(),
+  kind: text('kind', { enum: ['investment', 'insurance', 'savings'] }).notNull(),
+  current_value_cents: integer('current_value_cents').notNull(),
+  liquid: integer('liquid').notNull().default(0), // boolean 0/1
+  note: text('note'),
+  sort_order: integer('sort_order').notNull().default(0),
+  created_at: integer('created_at').notNull(),
+  updated_at: integer('updated_at').notNull(),
+})
