@@ -2,7 +2,7 @@
 <!-- §4 §5 §7: Dashboard — STS hero → QuickLog → Goals → Debt → Monthly rollup. -->
 <!-- Session-gated: all three endpoints return 401 if no valid session (requireSession in handlers). -->
 <script setup lang="ts">
-import { computed, ref, nextTick } from 'vue'
+import { computed, ref, nextTick, onMounted } from 'vue'
 import { useFetch } from '#app'
 import SafeToSpendHero from '~/components/forecast/SafeToSpendHero.vue'
 import SurplusRollup from '~/components/forecast/SurplusRollup.vue'
@@ -10,6 +10,7 @@ import CardDebtCard from '~/components/debt/CardDebtCard.vue'
 import GoalProgressBar from '~/components/forecast/GoalProgressBar.vue'
 import QuickLog from '~/components/quicklog/QuickLog.vue'
 import { useSafeToSpend } from '~/composables/useSafeToSpend'
+import { usePush } from '~/composables/usePush'
 import { navigateTo } from '#app'
 
 // All three fetches are online-first; Nuxt will throw on 401 → redirect handled by nuxtjs session
@@ -179,6 +180,53 @@ function movePayday() {
 function adjustPayday() {
   openSheet(suggestedSavingsCents.value)
 }
+
+// ─── Push / reminders ─────────────────────────────────────────────────────────
+const { permission, showInstallBanner, canEnable, enable } = usePush()
+
+// Reminder health — fetch after mount so it doesn't block the dashboard render.
+const pushHealth = ref<{ healthySubscriptions: number; channelOk: boolean } | null>(null)
+const pushHealthError = ref(false)
+
+onMounted(async () => {
+  try {
+    pushHealth.value = await $fetch<{ healthySubscriptions: number; channelOk: boolean }>('/api/health/push')
+  } catch {
+    pushHealthError.value = true
+  }
+})
+
+const enableStatus = ref<'idle' | 'working' | 'done' | 'denied' | 'error'>('idle')
+
+async function handleEnableReminders() {
+  enableStatus.value = 'working'
+  const result = await enable()
+  if (result.ok) {
+    enableStatus.value = 'done'
+    // Refresh push health after successful subscribe
+    try {
+      pushHealth.value = await $fetch<{ healthySubscriptions: number; channelOk: boolean }>('/api/health/push')
+    } catch { /* non-critical */ }
+  } else if (result.reason === 'denied') {
+    enableStatus.value = 'denied'
+  } else {
+    enableStatus.value = 'error'
+  }
+}
+
+// Show the "enable reminders" card only when push is supported and not yet granted/done
+const showEnableCard = computed(
+  () =>
+    permission.value !== 'unsupported' &&
+    permission.value !== 'granted' &&
+    enableStatus.value !== 'done' &&
+    !showInstallBanner.value,
+)
+
+// Show "reminders on" quiet indicator when granted or just completed
+const showRemindersOn = computed(
+  () => permission.value === 'granted' || enableStatus.value === 'done',
+)
 </script>
 
 <template>
@@ -201,6 +249,102 @@ function adjustPayday() {
     </div>
 
     <template v-else>
+
+      <!-- iOS install hint — shown on iOS browser (not standalone) -->
+      <div
+        v-if="showInstallBanner"
+        class="card reminders__install-banner"
+        data-test="install-hint"
+        role="status"
+        aria-live="polite"
+      >
+        <div class="reminders__row">
+          <!-- phone-with-arrow icon -->
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="reminders__icon reminders__icon--warning">
+            <rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>
+          </svg>
+          <p class="reminders__install-text">
+            <strong>Add to Home Screen</strong> to turn on bill reminders — Web Push on iOS requires the app to be installed.
+          </p>
+        </div>
+      </div>
+
+      <!-- Enable reminders card — shown when push not yet granted (non-iOS, or iOS standalone) -->
+      <div
+        v-else-if="showEnableCard"
+        class="card reminders__card"
+        data-test="enable-reminders"
+        role="region"
+        aria-label="Turn on reminders"
+      >
+        <div class="reminders__row">
+          <!-- bell icon -->
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="reminders__icon">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+          </svg>
+          <div class="reminders__body">
+            <p class="reminders__title">Turn on reminders</p>
+            <p class="reminders__desc">Get notified before bills are due and on payday.</p>
+          </div>
+        </div>
+
+        <!-- Denied state -->
+        <p
+          v-if="enableStatus === 'denied' || permission === 'denied'"
+          class="reminders__status reminders__status--denied"
+          role="alert"
+          aria-live="assertive"
+        >
+          <!-- x-circle icon -->
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          Reminders blocked — enable notifications in browser settings.
+        </p>
+
+        <!-- Enable button (shown when not denied) -->
+        <button
+          v-else
+          class="btn-primary reminders__btn"
+          type="button"
+          :disabled="enableStatus === 'working'"
+          aria-label="Turn on bill and payday reminders"
+          @click="handleEnableReminders"
+        >
+          <svg v-if="enableStatus !== 'working'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+          </svg>
+          {{ enableStatus === 'working' ? 'Enabling…' : 'Turn on reminders' }}
+        </button>
+      </div>
+
+      <!-- Reminders on — quiet indicator after subscribe or when already granted -->
+      <div
+        v-else-if="showRemindersOn"
+        class="reminders__on"
+        data-test="reminders-on"
+        role="status"
+        aria-live="polite"
+      >
+        <!-- check-circle icon -->
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        Reminders are on
+      </div>
+
+      <!-- Reminder health card — only show when push is not healthy (acts as an alert) -->
+      <div
+        v-if="pushHealth && !pushHealth.channelOk && showRemindersOn"
+        class="card reminders__health-warn"
+        data-test="push-health-warn"
+        role="alert"
+        aria-live="polite"
+      >
+        <div class="reminders__row">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="reminders__icon reminders__icon--warning">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <p class="reminders__health-text">No active push subscription — notifications won't fire. Re-enable below.</p>
+        </div>
+      </div>
+
       <!-- Payday prompt — shown at top when income landed and EF target not yet met -->
       <div
         v-if="showPaydayPrompt"
@@ -643,5 +787,110 @@ function adjustPayday() {
   width: 100%;
   min-height: 44px;
   margin-top: 4px;
+}
+
+/* ─── Reminders / push notification cards ─────────────────────────────────── */
+.reminders__card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-left: 4px solid var(--primary);
+}
+
+.reminders__install-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-left: 4px solid var(--warning);
+}
+
+.reminders__health-warn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-left: 4px solid var(--warning);
+  padding: 12px 16px;
+}
+
+.reminders__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.reminders__icon {
+  color: var(--primary);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.reminders__icon--warning {
+  color: var(--warning);
+}
+
+.reminders__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reminders__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.reminders__desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.reminders__install-text {
+  font-size: 14px;
+  color: var(--text);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.reminders__health-text {
+  font-size: 13px;
+  color: var(--text);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.reminders__btn {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.reminders__status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.reminders__status--denied {
+  color: var(--negative);
+}
+
+.reminders__on {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--positive);
+  padding: 0 4px;
 }
 </style>
