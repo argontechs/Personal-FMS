@@ -59,7 +59,7 @@ export function deriveMoneyMoves(db: DB): MoneyMove[] {
   const liquidRows: Array<{ current_value_cents: number }> = db
     .select({ current_value_cents: holdings.current_value_cents })
     .from(holdings)
-    .where(eq(holdings.liquid, 1))
+    .where(eq(holdings.liquid, true))
     .all()
   const qualifyingHolding = liquidRows.some((h) => Number(h.current_value_cents) >= cardBalanceCents)
 

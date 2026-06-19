@@ -3,7 +3,7 @@
      avalanche order (priority_rank) + Holdings/Investments + TRUE net worth summary at the top.
      Card account is shown under Debts only, never double-counted as an asset. -->
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, nextTick } from 'vue'
 import { useFetch } from '#app'
 import { formatRM } from '../../shared/types'
 
@@ -118,36 +118,57 @@ const formName = ref('')
 const formInstitution = ref('')
 const formKind = ref<'investment' | 'insurance' | 'savings'>('investment')
 const formValueRm = ref('')   // user types RM string, we parse to integer sen
+const formLiquid = ref(false) // §AIA lever — can be withdrawn to cash
 const formNote = ref('')
 const formSaving = ref(false)
 const formError = ref('')
 
-function openEditSheet(h: any) {
+// a11y: autofocus the Name input on open + restore focus to the trigger on close.
+const nameInputRef = ref<HTMLInputElement | null>(null)
+const lastTrigger = ref<HTMLElement | null>(null)
+
+// Delete confirm (edit mode only).
+const confirmingDelete = ref(false)
+const deleting = ref(false)
+
+function openEditSheet(h: any, ev?: Event) {
+  lastTrigger.value = (ev?.currentTarget as HTMLElement) ?? null
   sheetMode.value = 'edit'
   sheetHolding.value = h
   formName.value = h.name
   formInstitution.value = h.institution
   formKind.value = h.kind
   formValueRm.value = (h.current_value_cents / 100).toFixed(2)
+  formLiquid.value = !!h.liquid
   formNote.value = h.note ?? ''
   formError.value = ''
+  confirmingDelete.value = false
   sheetOpen.value = true
+  nextTick(() => nameInputRef.value?.focus())
 }
 
-function openAddSheet() {
+function openAddSheet(ev?: Event) {
+  lastTrigger.value = (ev?.currentTarget as HTMLElement) ?? null
   sheetMode.value = 'add'
   sheetHolding.value = null
   formName.value = ''
   formInstitution.value = ''
   formKind.value = 'investment'
   formValueRm.value = ''
+  formLiquid.value = false
   formNote.value = ''
   formError.value = ''
+  confirmingDelete.value = false
   sheetOpen.value = true
+  nextTick(() => nameInputRef.value?.focus())
 }
 
 function closeSheet() {
   sheetOpen.value = false
+  confirmingDelete.value = false
+  // Restore focus to the element that opened the sheet.
+  const t = lastTrigger.value
+  if (t && typeof t.focus === 'function') nextTick(() => t.focus())
 }
 
 function parseSen(rmStr: string): number | null {
@@ -173,6 +194,7 @@ async function saveHolding() {
           institution: formInstitution.value.trim(),
           kind: formKind.value,
           current_value_cents: valueCents,
+          liquid: formLiquid.value ? 1 : 0,
           note: formNote.value.trim() || null,
         },
       })
@@ -184,6 +206,7 @@ async function saveHolding() {
           institution: formInstitution.value.trim(),
           kind: formKind.value,
           current_value_cents: valueCents,
+          liquid: formLiquid.value ? 1 : 0,
           note: formNote.value.trim() || null,
         },
       })
@@ -194,6 +217,28 @@ async function saveHolding() {
     formError.value = e?.data?.statusMessage ?? 'Save failed. Try again.'
   } finally {
     formSaving.value = false
+  }
+}
+
+// ── Delete holding (edit mode only) ──────────────────────────────────────────
+async function deleteHolding() {
+  if (!sheetHolding.value) return
+  // First click arms the confirm; second click performs the delete.
+  if (!confirmingDelete.value) {
+    confirmingDelete.value = true
+    return
+  }
+  formError.value = ''
+  deleting.value = true
+  try {
+    await $fetch(`/api/holdings/${sheetHolding.value.id}`, { method: 'DELETE' })
+    await refreshHoldings()
+    closeSheet()
+  } catch (e: any) {
+    formError.value = e?.data?.statusMessage ?? 'Delete failed. Try again.'
+    confirmingDelete.value = false
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -362,7 +407,7 @@ async function retry() {
             type="button"
             class="accts-add-btn"
             aria-label="Add holding"
-            @click="openAddSheet"
+            @click="openAddSheet($event)"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
               fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
@@ -416,7 +461,7 @@ async function retry() {
                   type="button"
                   class="accts-holding__edit-btn"
                   :aria-label="`Edit ${holding.name}`"
-                  @click="openEditSheet(holding)"
+                  @click="openEditSheet(holding, $event)"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -545,6 +590,7 @@ async function retry() {
       aria-modal="true"
       :aria-label="sheetMode === 'edit' ? 'Edit holding' : 'Add holding'"
       @click.self="closeSheet"
+      @keydown.esc="closeSheet"
     >
       <div class="holding-sheet">
         <div class="holding-sheet__header">
@@ -571,6 +617,7 @@ async function retry() {
             <label class="holding-sheet__label" for="holding-name">Name</label>
             <input
               id="holding-name"
+              ref="nameInputRef"
               v-model="formName"
               type="text"
               class="holding-sheet__input"
@@ -614,6 +661,24 @@ async function retry() {
           </div>
 
           <div class="holding-sheet__field">
+            <label class="holding-sheet__toggle">
+              <input
+                type="checkbox"
+                class="holding-sheet__toggle-input"
+                v-model="formLiquid"
+                aria-describedby="holding-liquid-help"
+              />
+              <span class="holding-sheet__toggle-track" aria-hidden="true">
+                <span class="holding-sheet__toggle-thumb"></span>
+              </span>
+              <span class="holding-sheet__toggle-text">Liquid — can be withdrawn to cash</span>
+            </label>
+            <p id="holding-liquid-help" class="holding-sheet__help">
+              Liquid holdings power the “clear the card” suggestion.
+            </p>
+          </div>
+
+          <div class="holding-sheet__field">
             <label class="holding-sheet__label" for="holding-note">Note (optional)</label>
             <input
               id="holding-note"
@@ -636,6 +701,31 @@ async function retry() {
           >
             {{ formSaving ? 'Saving…' : (sheetMode === 'edit' ? 'Save changes' : 'Add holding') }}
           </button>
+        </div>
+
+        <!-- Destructive zone — edit mode only, visually separated from Save -->
+        <div v-if="sheetMode === 'edit'" class="holding-sheet__danger-zone">
+          <button
+            type="button"
+            class="holding-sheet__delete-btn"
+            :class="{ 'holding-sheet__delete-btn--armed': confirmingDelete }"
+            :disabled="deleting"
+            @click="deleteHolding"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+            {{ deleting ? 'Deleting…' : (confirmingDelete ? 'Tap again to confirm delete' : 'Delete holding') }}
+          </button>
+          <button
+            v-if="confirmingDelete && !deleting"
+            type="button"
+            class="holding-sheet__delete-cancel"
+            @click="confirmingDelete = false"
+          >Keep</button>
         </div>
       </div>
     </div>
@@ -1174,6 +1264,72 @@ async function retry() {
   border-color: var(--ring);
 }
 
+/* ── Liquid toggle ── */
+.holding-sheet__toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.holding-sheet__toggle-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.holding-sheet__toggle-track {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1.5px solid var(--border);
+  transition: background .15s, border-color .15s;
+}
+
+.holding-sheet__toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform .15s, background .15s;
+}
+
+.holding-sheet__toggle-input:checked + .holding-sheet__toggle-track {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.holding-sheet__toggle-input:checked + .holding-sheet__toggle-track .holding-sheet__toggle-thumb {
+  transform: translateX(18px);
+  background: var(--on-primary);
+}
+
+.holding-sheet__toggle-input:focus-visible + .holding-sheet__toggle-track {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.holding-sheet__toggle-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.holding-sheet__help {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 6px 0 0 54px;
+  line-height: 1.4;
+}
+
 .holding-sheet__footer {
   display: flex;
   gap: 10px;
@@ -1187,6 +1343,72 @@ async function retry() {
 
 .holding-sheet__footer .btn-primary {
   flex: 2;
+}
+
+/* ── Destructive zone (edit mode) ── */
+.holding-sheet__danger-zone {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px 20px;
+  margin-top: -4px;
+  border-top: 1px dashed var(--border);
+  padding-top: 16px;
+}
+
+.holding-sheet__delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1.5px solid var(--negative);
+  border-radius: var(--radius-btn);
+  background: transparent;
+  color: var(--negative);
+  font-family: var(--font-base);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, transform .15s, opacity .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.holding-sheet__delete-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.holding-sheet__delete-btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.holding-sheet__delete-btn:focus-visible {
+  outline: 2px solid var(--negative);
+  outline-offset: 2px;
+}
+
+.holding-sheet__delete-btn--armed {
+  background: var(--negative);
+  color: var(--on-primary);
+}
+
+.holding-sheet__delete-cancel {
+  min-height: 44px;
+  padding: 0 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-base);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.holding-sheet__delete-cancel:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 /* badge color variants used by holdings */

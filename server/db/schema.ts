@@ -160,7 +160,9 @@ export const holdings = sqliteTable('holdings', {
   institution: text('institution').notNull(),
   kind: text('kind', { enum: ['investment', 'insurance', 'savings'] }).notNull(),
   current_value_cents: integer('current_value_cents').notNull(),
-  liquid: integer('liquid').notNull().default(0), // boolean 0/1
+  // {mode:'boolean'} surfaces liquid as a JS boolean in app code; storage stays integer 0/1.
+  // Keep numeric .default(0) so the generated DDL/snapshot default remains `0` (no spurious migration).
+  liquid: integer('liquid', { mode: 'boolean' }).notNull().default(0 as unknown as boolean),
   note: text('note'),
   sort_order: integer('sort_order').notNull().default(0),
   created_at: integer('created_at').notNull(),

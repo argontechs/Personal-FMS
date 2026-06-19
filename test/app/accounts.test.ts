@@ -2,7 +2,7 @@
 // Accounts & Debts page unit tests — mounts the page in happy-dom, stubs useFetch.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { defineComponent, h, Suspense, ref } from 'vue'
+import { defineComponent, h, Suspense, ref, nextTick } from 'vue'
 
 // ─── #app mock ─────────────────────────────────────────────────────────────────
 vi.mock('#app', () => ({
@@ -216,5 +216,139 @@ describe('Accounts & Debts page — error and loading states', () => {
     const w = mountAccounts(mockAccounts, mockDebts, { accountsError: new Error('fail') })
     await flushPromises()
     expect(w.find('[role="alert"]').text()).toContain('Retry')
+  })
+})
+
+// ─── Holdings add/edit sheet — liquid toggle, delete, a11y ──────────────────────
+
+describe('Accounts page — holdings sheet liquid toggle', () => {
+  it('Add: includes liquid (0/1) in the POST body, defaulting off then toggled on', async () => {
+    const mockFetch = vi.fn(async () => ({ id: 99 }))
+    vi.stubGlobal('$fetch', mockFetch)
+
+    const w = mountAccounts(mockAccounts, mockDebts, { holdingsData: [] })
+    await flushPromises()
+
+    await w.find('.accts-add-btn').trigger('click')
+    await flushPromises()
+
+    // helper text present
+    expect(w.text()).toContain("Liquid holdings power the “clear the card” suggestion.")
+
+    // fill required fields
+    const name = w.find('#holding-name').element as HTMLInputElement
+    name.value = 'New Fund'; name.dispatchEvent(new Event('input'))
+    const inst = w.find('#holding-institution').element as HTMLInputElement
+    inst.value = 'ASNB'; inst.dispatchEvent(new Event('input'))
+    const val = w.find('#holding-value').element as HTMLInputElement
+    val.value = '1000.00'; val.dispatchEvent(new Event('input'))
+    // toggle liquid ON
+    const toggle = w.find('.holding-sheet__toggle-input').element as HTMLInputElement
+    toggle.checked = true; toggle.dispatchEvent(new Event('change'))
+    await flushPromises()
+
+    await w.find('.holding-sheet__footer .btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/holdings', expect.objectContaining({
+      method: 'POST',
+      body: expect.objectContaining({ name: 'New Fund', liquid: 1 }),
+    }))
+  })
+
+  it('Edit: pre-checks liquid from the holding and PATCHes liquid in the body', async () => {
+    const mockFetch = vi.fn(async () => ({ id: 20 }))
+    vi.stubGlobal('$fetch', mockFetch)
+
+    const w = mountAccounts(mockAccounts, mockDebts, { holdingsData: mockHoldings })
+    await flushPromises()
+
+    // open edit on the first holding (AIA, liquid:1)
+    await w.find('.accts-holding__edit-btn').trigger('click')
+    await flushPromises()
+
+    const toggle = w.find('.holding-sheet__toggle-input').element as HTMLInputElement
+    expect(toggle.checked).toBe(true) // AIA seeded liquid:1
+
+    await w.find('.holding-sheet__footer .btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/holdings/20', expect.objectContaining({
+      method: 'PATCH',
+      body: expect.objectContaining({ liquid: 1 }),
+    }))
+  })
+})
+
+describe('Accounts page — holdings delete', () => {
+  it('two-step delete calls DELETE /api/holdings/:id then refreshHoldings', async () => {
+    const mockFetch = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('$fetch', mockFetch)
+
+    const refreshSpy = vi.fn()
+    // custom impl so we can assert refresh was called
+    vi.mocked(useFetch).mockImplementation(((url: string) => {
+      if (url === '/api/accounts') return Promise.resolve({ data: ref(mockAccounts), refresh: vi.fn(), error: ref(null) })
+      if (url === '/api/debts') return Promise.resolve({ data: ref(mockDebts), refresh: vi.fn(), error: ref(null) })
+      if (url === '/api/holdings') return Promise.resolve({ data: ref(mockHoldings), refresh: refreshSpy, error: ref(null) })
+      return Promise.resolve({ data: ref(null), refresh: vi.fn(), error: ref(null) })
+    }) as any)
+
+    const div = document.createElement('div')
+    document.body.appendChild(div)
+    const w = mount(defineComponent({ render() { return h(Suspense, null, { default: () => h(AccountsPage) }) } }), { attachTo: div })
+    mountedWrappers.push(w)
+    await flushPromises()
+
+    await w.find('.accts-holding__edit-btn').trigger('click')
+    await flushPromises()
+
+    // delete button is present only in edit mode
+    const delBtn = w.find('.holding-sheet__delete-btn')
+    expect(delBtn.exists()).toBe(true)
+
+    // first click arms confirm (no DELETE yet)
+    await delBtn.trigger('click')
+    await flushPromises()
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(w.find('.holding-sheet__delete-btn').text()).toContain('confirm')
+
+    // second click performs the delete
+    await w.find('.holding-sheet__delete-btn').trigger('click')
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/holdings/20', expect.objectContaining({ method: 'DELETE' }))
+    expect(refreshSpy).toHaveBeenCalled()
+  })
+
+  it('Add mode has no delete control', async () => {
+    const w = mountAccounts(mockAccounts, mockDebts, { holdingsData: [] })
+    await flushPromises()
+    await w.find('.accts-add-btn').trigger('click')
+    await flushPromises()
+    expect(w.find('.holding-sheet__delete-btn').exists()).toBe(false)
+  })
+})
+
+describe('Accounts page — holdings sheet a11y', () => {
+  it('autofocuses the Name input on open', async () => {
+    const w = mountAccounts(mockAccounts, mockDebts, { holdingsData: [] })
+    await flushPromises()
+    await w.find('.accts-add-btn').trigger('click')
+    await flushPromises()
+    await nextTick()
+    const name = w.find('#holding-name').element as HTMLInputElement
+    expect(document.activeElement).toBe(name)
+  })
+
+  it('Esc on the backdrop closes the sheet', async () => {
+    const w = mountAccounts(mockAccounts, mockDebts, { holdingsData: [] })
+    await flushPromises()
+    await w.find('.accts-add-btn').trigger('click')
+    await flushPromises()
+    expect(w.find('.holding-sheet-backdrop').exists()).toBe(true)
+    await w.find('.holding-sheet-backdrop').trigger('keydown.esc')
+    await flushPromises()
+    expect(w.find('.holding-sheet-backdrop').exists()).toBe(false)
   })
 })

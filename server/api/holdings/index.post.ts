@@ -8,6 +8,8 @@ import { holdings } from '../../db/schema'
 import { nowEpoch } from '../../utils/mytDate'
 
 const VALID_KINDS = ['investment', 'insurance', 'savings'] as const
+// RM1,000,000,000 expressed in sen — a sane upper bound to reject fat-finger / overflow values.
+const MAX_VALUE_CENTS = 100_000_000_00
 
 export default defineEventHandler(async (event) => {
   requireSession(event)
@@ -25,6 +27,17 @@ export default defineEventHandler(async (event) => {
   if (typeof b.current_value_cents !== 'number' || !Number.isInteger(b.current_value_cents) || b.current_value_cents <= 0) {
     throw createError({ statusCode: 400, statusMessage: 'current_value_cents must be a positive integer' })
   }
+  if (b.current_value_cents > MAX_VALUE_CENTS) {
+    throw createError({ statusCode: 400, statusMessage: 'current_value_cents exceeds the maximum allowed value' })
+  }
+  // liquid: optional, but if present must be exactly 0 or 1.
+  if ('liquid' in b && b.liquid !== 0 && b.liquid !== 1) {
+    throw createError({ statusCode: 400, statusMessage: 'liquid must be exactly 0 or 1' })
+  }
+  // sort_order: optional, but if present must be a non-negative integer.
+  if ('sort_order' in b && (typeof b.sort_order !== 'number' || !Number.isInteger(b.sort_order) || b.sort_order < 0)) {
+    throw createError({ statusCode: 400, statusMessage: 'sort_order must be a non-negative integer' })
+  }
 
   const now = nowEpoch()
   const [row] = db.insert(holdings).values({
@@ -32,12 +45,13 @@ export default defineEventHandler(async (event) => {
     institution: b.institution.trim(),
     kind: b.kind,
     current_value_cents: b.current_value_cents,
-    liquid: b.liquid ?? 0,
+    liquid: b.liquid === 1, // schema is {mode:'boolean'}; store as boolean
     note: b.note ?? null,
     sort_order: b.sort_order ?? 0,
     created_at: now,
     updated_at: now,
   }).returning().all()
 
-  return row
+  // Normalise the boolean back to integer 0/1 for the wire/UI contract.
+  return { ...row, liquid: row.liquid ? 1 : 0 }
 })

@@ -161,6 +161,27 @@ describe('holdings API — POST validation', () => {
       body: { institution: 'Bank', kind: 'savings', current_value_cents: 1000 },
     })).rejects.toMatchObject({ statusCode: 400 })
   })
+
+  it('rejects liquid=99 (must be exactly 0 or 1)', async () => {
+    await expect(authFetch('/api/holdings', {
+      method: 'POST',
+      body: { name: 'Test', institution: 'Bank', kind: 'savings', current_value_cents: 1000, liquid: 99 },
+    })).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('rejects negative sort_order', async () => {
+    await expect(authFetch('/api/holdings', {
+      method: 'POST',
+      body: { name: 'Test', institution: 'Bank', kind: 'savings', current_value_cents: 1000, sort_order: -1 },
+    })).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('rejects current_value_cents above the RM1B cap', async () => {
+    await expect(authFetch('/api/holdings', {
+      method: 'POST',
+      body: { name: 'Test', institution: 'Bank', kind: 'savings', current_value_cents: 100_000_000_00 + 1 },
+    })).rejects.toMatchObject({ statusCode: 400 })
+  })
 })
 
 // ── POST create ────────────────────────────────────────────────────────────
@@ -228,6 +249,34 @@ describe('holdings API — PATCH update', () => {
       method: 'PATCH',
       body: { kind: 'bonds' },
     })).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('rejects empty/whitespace institution in PATCH (matches POST)', async () => {
+    const rows = await authFetch('/api/holdings')
+    const id = rows[0].id
+    await expect(authFetch(`/api/holdings/${id}`, {
+      method: 'PATCH',
+      body: { institution: '   ' },
+    })).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('rejects liquid=99 in PATCH', async () => {
+    const rows = await authFetch('/api/holdings')
+    const id = rows[0].id
+    await expect(authFetch(`/api/holdings/${id}`, {
+      method: 'PATCH',
+      body: { liquid: 99 },
+    })).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('PATCH liquid=1 round-trips as integer 1', async () => {
+    const rows = await authFetch('/api/holdings')
+    const id = rows.find((r: any) => r.liquid === 0)?.id ?? rows[0].id
+    const updated = await authFetch(`/api/holdings/${id}`, {
+      method: 'PATCH',
+      body: { liquid: 1 },
+    })
+    expect(updated.liquid).toBe(1)
   })
 })
 

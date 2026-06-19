@@ -387,29 +387,7 @@ function statusClass(row: BudgetRow): string {
   color: var(--text-muted);
 }
 
-.btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 44px;
-  padding: 0 16px;
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-btn);
-  background: var(--surface);
-  color: var(--text);
-  font-family: var(--font-base);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-  transition: background 120ms ease-out;
-}
-.btn-secondary:hover { background: var(--surface-2); }
-.btn-secondary:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
+/* .btn-secondary is now defined globally in tokens.css (promoted in v2). */
 
 /* ── Inline edit form ─────────────────────────────────────────────── */
 .budgets__edit-form {

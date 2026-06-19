@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "48015fcf-c1b8-4da7-a47d-1d0030635b44",
-  "prevId": "0001a1b2-c3d4-4e5f-8a9b-0001deadbeef",
+  "id": "0001a1b2-c3d4-4e5f-8a9b-0001deadbeef",
+  "prevId": "223eb1fb-4e1e-4f7d-8bb0-e6f1482ed9be",
   "tables": {
     "accounts": {
       "name": "accounts",
@@ -97,59 +97,6 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "budgets": {
-      "name": "budgets",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "category": {
-          "name": "category",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "limit_cents": {
-          "name": "limit_cents",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "budgets_category_unique": {
-          "name": "budgets_category_unique",
-          "columns": [
-            "category"
-          ],
-          "isUnique": true
-        }
-      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
