@@ -7,6 +7,13 @@ import { CacheableResponsePlugin } from 'workbox-cacheable-response'
 
 declare let self: ServiceWorkerGlobalScope
 
+// Take control immediately on update so a NEW service worker (with the latest routes +
+// offline navigation handling) replaces the old one without requiring every tab to close.
+// Without this, a stale SW keeps controlling the page and new caching/navigation routes
+// never activate (and users don't get SW updates).
+self.addEventListener('install', () => { self.skipWaiting() })
+self.addEventListener('activate', (event: ExtendableEvent) => { event.waitUntil(self.clients.claim()) })
+
 // injectManifest entry point — Workbox precaches the app shell (offline quick-log).
 precacheAndRoute(self.__WB_MANIFEST || [])
 
