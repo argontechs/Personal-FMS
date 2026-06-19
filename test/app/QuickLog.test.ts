@@ -13,9 +13,17 @@ vi.mock('../../app/composables/useOfflineQueue', () => ({
   registerAutoFlush: vi.fn(),
 }));
 
+const mockAccounts = [
+  { id: 10, name: 'Maybank Current', type: 'bank' },
+  { id: 11, name: 'Touch n Go', type: 'ewallet' },
+  { id: 12, name: 'Cash Wallet', type: 'cash' },
+];
+
 beforeEach(() => { enqueued.length = 0; });
 
 describe('QuickLog', () => {
+
+  // ── Expense mode (existing behaviour unchanged) ─────────────────────────
   it('enqueues amount + category in two taps and emits logged', async () => {
     const wrapper = mount(QuickLog, { props: { accountId: 1, defaultDate: '2026-06-18' } });
     await wrapper.find('[data-test="amount"]').setValue('12.50');
@@ -70,7 +78,7 @@ describe('QuickLog', () => {
     expect(input.value).toBe('');
   });
 
-  it('renders all 7 category chips', () => {
+  it('renders all 7 category chips in expense mode', () => {
     const wrapper = mount(QuickLog, { props: { accountId: 1, defaultDate: '2026-06-18' } });
     const chips = wrapper.findAll('[data-test^="cat-"]');
     expect(chips.length).toBe(7);
@@ -103,5 +111,112 @@ describe('QuickLog', () => {
     expect(enqueued.length).toBe(1);
     expect(enqueued[0].category).toBe('shopping');
     expect(enqueued[0].amount_cents).toBe(-4590);
+  });
+
+  // ── Mode toggle ─────────────────────────────────────────────────────────
+  it('defaults to expense mode (mode-expense toggle is active)', () => {
+    const wrapper = mount(QuickLog, { props: { accountId: 1 } });
+    const expenseBtn = wrapper.find('[data-test="mode-expense"]');
+    expect(expenseBtn.classes()).toContain('quicklog__toggle-btn--active');
+    expect(expenseBtn.attributes('aria-pressed')).toBe('true');
+    const incomeBtn = wrapper.find('[data-test="mode-income"]');
+    expect(incomeBtn.classes()).not.toContain('quicklog__toggle-btn--active');
+  });
+
+  it('switching to Income mode shows account picker and source chips, hides expense chips', async () => {
+    const wrapper = mount(QuickLog, {
+      props: { accountId: 1, defaultDate: '2026-06-18', accounts: mockAccounts },
+    });
+    await wrapper.find('[data-test="mode-income"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    // Expense chips are hidden
+    expect(wrapper.find('[data-test="cat-food"]').exists()).toBe(false);
+
+    // Account picker is visible
+    expect(wrapper.find('[data-test="income-account"]').exists()).toBe(true);
+
+    // Source note chips visible
+    expect(wrapper.find('[data-test="income-src-salary"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="income-src-side-gig"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="income-src-refund"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="income-src-gift"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="income-src-other"]').exists()).toBe(true);
+
+    // Log Income button is visible
+    expect(wrapper.find('[data-test="log-income"]').exists()).toBe(true);
+  });
+
+  it('income submit enqueues direction:income, positive amount_cents, category:income, account_id, note', async () => {
+    const wrapper = mount(QuickLog, {
+      props: { accountId: 1, defaultDate: '2026-06-19', accounts: mockAccounts },
+    });
+    // Switch to income mode
+    await wrapper.find('[data-test="mode-income"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    // Enter amount
+    await wrapper.find('[data-test="amount"]').setValue('500.00');
+
+    // Pick account (bank: id=10 is pre-selected as default bank)
+    // Confirm account picker exists
+    expect(wrapper.find('[data-test="income-account"]').exists()).toBe(true);
+
+    // Select a source chip (Side gig)
+    await wrapper.find('[data-test="income-src-side-gig"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    // Submit
+    await wrapper.find('[data-test="log-income"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(enqueued.length).toBe(1);
+    const t = enqueued[0];
+    expect(t.direction).toBe('income');
+    expect(t.amount_cents).toBe(50000); // +RM500 = +50000 sen (positive)
+    expect(t.category).toBe('income');
+    expect(t.account_id).toBe(10); // bank account pre-selected
+    expect(t.note).toBe('Side gig');
+    expect(t.date).toBe('2026-06-19');
+
+    // emits logged
+    expect(wrapper.emitted('logged')).toBeTruthy();
+  });
+
+  it('income submit without source chip sets note to undefined', async () => {
+    const wrapper = mount(QuickLog, {
+      props: { accountId: 1, defaultDate: '2026-06-19', accounts: mockAccounts },
+    });
+    await wrapper.find('[data-test="mode-income"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    await wrapper.find('[data-test="amount"]').setValue('1000.00');
+    await wrapper.find('[data-test="log-income"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(enqueued[0].direction).toBe('income');
+    expect(enqueued[0].amount_cents).toBe(100000);
+    expect(enqueued[0].note == null || enqueued[0].note === undefined).toBe(true);
+  });
+
+  it('income mode does not enqueue when amount is empty', async () => {
+    const wrapper = mount(QuickLog, {
+      props: { accountId: 1, defaultDate: '2026-06-19', accounts: mockAccounts },
+    });
+    await wrapper.find('[data-test="mode-income"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    await wrapper.find('[data-test="log-income"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(enqueued.length).toBe(0);
+  });
+
+  it('switching back to expense mode restores expense chips', async () => {
+    const wrapper = mount(QuickLog, { props: { accountId: 1 } });
+    await wrapper.find('[data-test="mode-income"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    await wrapper.find('[data-test="mode-expense"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-test="cat-food"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="log-income"]').exists()).toBe(false);
   });
 });

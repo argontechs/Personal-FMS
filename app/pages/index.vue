@@ -65,9 +65,13 @@ async function onLogged(txn: any) {
 
     <!-- 2. QuickLog — the daily action, immediately below the hero -->
     <section class="dashboard__section">
-      <p class="section-label">Log a spend</p>
+      <p class="section-label">Log a transaction</p>
       <div class="card dashboard__quicklog-card">
-        <QuickLog :account-id="cashAccountId" @logged="onLogged" />
+        <QuickLog
+          :account-id="cashAccountId"
+          :accounts="Array.isArray(accounts) ? accounts : []"
+          @logged="onLogged"
+        />
       </div>
     </section>
 

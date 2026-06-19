@@ -6,7 +6,7 @@ export interface QueuedTxn {
   date: string;
   amount_cents: number;
   direction: 'income' | 'expense';
-  category: 'food' | 'transport' | 'fuel' | 'groceries' | 'shopping' | 'bills' | 'other';
+  category: 'food' | 'transport' | 'fuel' | 'groceries' | 'shopping' | 'bills' | 'other' | 'income';
   account_id: number;
   note?: string;
 }

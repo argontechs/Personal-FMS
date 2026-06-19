@@ -1,14 +1,48 @@
 <!-- app/components/quicklog/QuickLog.vue -->
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { useOfflineQueue, type QueuedTxn } from '../../composables/useOfflineQueue';
 
-const props = defineProps<{ accountId: number; defaultDate?: string }>();
+const props = defineProps<{ accountId: number; defaultDate?: string; accounts?: Account[] }>();
 const emit = defineEmits<{ logged: [txn: QueuedTxn] }>();
+
+interface Account {
+  id: number;
+  name: string;
+  type: string;
+}
 
 const { enqueue } = useOfflineQueue();
 const amount = ref('');
 const busy = ref(false);
+
+// ── Mode toggle ───────────────────────────────────────────────────────────────
+type Mode = 'expense' | 'income';
+const mode = ref<Mode>('expense');
+
+// ── Income state ──────────────────────────────────────────────────────────────
+const SPENDABLE_TYPES = new Set(['cash', 'bank', 'ewallet', 'savings']);
+const spendableAccounts = computed<Account[]>(() => {
+  if (!props.accounts) return [];
+  return props.accounts.filter(a => SPENDABLE_TYPES.has(a.type));
+});
+
+// Default to first bank account, fallback to first spendable, fallback to props.accountId
+const selectedAccountId = ref<number>(props.accountId);
+const hasInitialisedAccount = ref(false);
+
+// When accounts first arrive, pick the main bank account
+import { watch } from 'vue';
+watch(spendableAccounts, (accs) => {
+  if (hasInitialisedAccount.value || accs.length === 0) return;
+  hasInitialisedAccount.value = true;
+  const bank = accs.find(a => a.type === 'bank');
+  selectedAccountId.value = bank?.id ?? accs[0]?.id ?? props.accountId;
+}, { immediate: true });
+
+const INCOME_SOURCES = ['Salary', 'Side gig', 'Refund', 'Gift', 'Other'] as const;
+type IncomeSource = typeof INCOME_SOURCES[number];
+const selectedSource = ref<IncomeSource | null>(null);
 
 // Client MYT date (§14.20). defaultDate lets the test inject; runtime falls back to today.
 function clientDate(): string {
@@ -35,7 +69,7 @@ async function log(category: SpendCategory) {
   try {
     const txn = await enqueue({
       date: clientDate(),
-      amount_cents: -ringgitToSen(rm), // quick-log is always an expense
+      amount_cents: -ringgitToSen(rm), // quick-log expense → negative
       direction: 'expense',
       category,
       account_id: props.accountId,
@@ -46,10 +80,63 @@ async function log(category: SpendCategory) {
     busy.value = false;
   }
 }
+
+async function logIncome() {
+  const rm = parseFloat(amount.value);
+  if (!Number.isFinite(rm) || rm <= 0 || busy.value) return;
+  busy.value = true;
+  try {
+    const txn = await enqueue({
+      date: clientDate(),
+      amount_cents: ringgitToSen(rm), // income → positive
+      direction: 'income',
+      category: 'income',
+      account_id: selectedAccountId.value,
+      note: selectedSource.value ?? undefined,
+    });
+    emit('logged', txn);
+    amount.value = '';
+    selectedSource.value = null;
+  } finally {
+    busy.value = false;
+  }
+}
+
+function setMode(m: Mode) {
+  mode.value = m;
+  amount.value = '';
+  selectedSource.value = null;
+}
 </script>
 
 <template>
   <div class="quicklog">
+
+    <!-- ── Mode toggle ──────────────────────────────────────────────────── -->
+    <div class="quicklog__toggle" role="group" aria-label="Log mode">
+      <button
+        data-test="mode-expense"
+        type="button"
+        class="quicklog__toggle-btn"
+        :class="{ 'quicklog__toggle-btn--active': mode === 'expense' }"
+        :aria-pressed="mode === 'expense'"
+        @click="setMode('expense')"
+        @keydown.enter.prevent="setMode('expense')"
+        @keydown.space.prevent="setMode('expense')"
+      >Expense</button>
+      <button
+        data-test="mode-income"
+        type="button"
+        class="quicklog__toggle-btn"
+        :class="{ 'quicklog__toggle-btn--active': mode === 'income' }"
+        :aria-pressed="mode === 'income'"
+        @click="setMode('income')"
+        @keydown.enter.prevent="setMode('income')"
+        @keydown.space.prevent="setMode('income')"
+      >Income</button>
+    </div>
+
+    <!-- ── Amount input ─────────────────────────────────────────────────── -->
     <div class="quicklog__input-row">
       <span class="quicklog__currency">RM</span>
       <input
@@ -65,102 +152,160 @@ async function log(category: SpendCategory) {
       />
     </div>
 
-    <div class="chips" role="group" aria-label="Expense category">
+    <!-- ── EXPENSE mode: category chips ────────────────────────────────── -->
+    <template v-if="mode === 'expense'">
+      <div class="chips" role="group" aria-label="Expense category">
 
-      <!-- Food — utensils -->
-      <button data-test="cat-food" type="button" :disabled="busy" class="chip" @click="log('food')">
+        <!-- Food — utensils -->
+        <button data-test="cat-food" type="button" :disabled="busy" class="chip" @click="log('food')">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/>
+            <path d="M7 2v20"/>
+            <path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h1a2 2 0 0 1 2 2v5"/>
+          </svg>
+          Food
+        </button>
+
+        <!-- Transport — bus -->
+        <button data-test="cat-transport" type="button" :disabled="busy" class="chip" @click="log('transport')">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 6v6"/>
+            <path d="M15 6v6"/>
+            <path d="M2 12h19.6"/>
+            <path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"/>
+            <circle cx="7" cy="18" r="2"/>
+            <path d="M9 18h5"/>
+            <circle cx="16" cy="18" r="2"/>
+          </svg>
+          Transport
+        </button>
+
+        <!-- Fuel — fuel -->
+        <button data-test="cat-fuel" type="button" :disabled="busy" class="chip" @click="log('fuel')">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true">
+            <line x1="3" y1="22" x2="15" y2="22"/>
+            <line x1="4" y1="9" x2="14" y2="9"/>
+            <path d="M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18"/>
+            <path d="M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V9.83a2 2 0 0 0-.59-1.42L18 5"/>
+          </svg>
+          Fuel
+        </button>
+
+        <!-- Groceries — shopping-basket -->
+        <button data-test="cat-groceries" type="button" :disabled="busy" class="chip" @click="log('groceries')">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true">
+            <path d="m5 11 4-7"/>
+            <path d="m19 11-4-7"/>
+            <path d="M2 11h20"/>
+            <path d="m3.5 11 1.6 7.4a2 2 0 0 0 2 1.6h9.8a2 2 0 0 0 2-1.6l1.7-7.4"/>
+            <path d="m9 11 1 9"/>
+            <path d="M4.5 15.5h15"/>
+            <path d="m15 11-1 9"/>
+          </svg>
+          Groceries
+        </button>
+
+        <!-- Shopping — shopping-bag -->
+        <button data-test="cat-shopping" type="button" :disabled="busy" class="chip" @click="log('shopping')">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
+            <line x1="3" y1="6" x2="21" y2="6"/>
+            <path d="M16 10a4 4 0 0 1-8 0"/>
+          </svg>
+          Shopping
+        </button>
+
+        <!-- Bills — receipt -->
+        <button data-test="cat-bills" type="button" :disabled="busy" class="chip" @click="log('bills')">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true">
+            <polyline points="1 6 1 22 23 22 23 6"/>
+            <path d="M1 6 12 1l11 5"/>
+            <path d="M8 22V12h8v10"/>
+          </svg>
+          Bills
+        </button>
+
+        <!-- Other — circle-dollar-sign -->
+        <button data-test="cat-other" type="button" :disabled="busy" class="chip" @click="log('other')">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/>
+            <path d="M12 18V6"/>
+          </svg>
+          Other
+        </button>
+
+      </div>
+    </template>
+
+    <!-- ── INCOME mode ──────────────────────────────────────────────────── -->
+    <template v-else>
+
+      <!-- Funding account picker -->
+      <div class="quicklog__field" v-if="spendableAccounts.length > 0">
+        <label class="quicklog__field-label" for="income-account">Into account</label>
+        <select
+          id="income-account"
+          data-test="income-account"
+          class="quicklog__select"
+          :value="selectedAccountId"
+          @change="selectedAccountId = +($event.target as HTMLSelectElement).value"
+        >
+          <option
+            v-for="acc in spendableAccounts"
+            :key="acc.id"
+            :value="acc.id"
+          >{{ acc.name }}</option>
+        </select>
+      </div>
+
+      <!-- Source quick-chips (fills note) -->
+      <div class="chips" role="group" aria-label="Income source">
+        <button
+          v-for="src in INCOME_SOURCES"
+          :key="src"
+          type="button"
+          :data-test="`income-src-${src.toLowerCase().replace(' ', '-')}`"
+          class="chip"
+          :class="{ 'chip--active': selectedSource === src }"
+          :aria-pressed="selectedSource === src"
+          @click="selectedSource = selectedSource === src ? null : src"
+        >{{ src }}</button>
+      </div>
+
+      <!-- Submit -->
+      <button
+        data-test="log-income"
+        type="button"
+        class="quicklog__income-btn"
+        :disabled="busy"
+        @click="logIncome"
+      >
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-          fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
           stroke-linejoin="round" aria-hidden="true">
-          <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/>
-          <path d="M7 2v20"/>
-          <path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h1a2 2 0 0 1 2 2v5"/>
+          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+          <polyline points="17 6 23 6 23 12"/>
         </svg>
-        Food
+        Log Income
       </button>
 
-      <!-- Transport — bus -->
-      <button data-test="cat-transport" type="button" :disabled="busy" class="chip" @click="log('transport')">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-          fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
-          stroke-linejoin="round" aria-hidden="true">
-          <path d="M8 6v6"/>
-          <path d="M15 6v6"/>
-          <path d="M2 12h19.6"/>
-          <path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"/>
-          <circle cx="7" cy="18" r="2"/>
-          <path d="M9 18h5"/>
-          <circle cx="16" cy="18" r="2"/>
-        </svg>
-        Transport
-      </button>
+    </template>
 
-      <!-- Fuel — fuel -->
-      <button data-test="cat-fuel" type="button" :disabled="busy" class="chip" @click="log('fuel')">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-          fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
-          stroke-linejoin="round" aria-hidden="true">
-          <line x1="3" y1="22" x2="15" y2="22"/>
-          <line x1="4" y1="9" x2="14" y2="9"/>
-          <path d="M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18"/>
-          <path d="M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V9.83a2 2 0 0 0-.59-1.42L18 5"/>
-        </svg>
-        Fuel
-      </button>
-
-      <!-- Groceries — shopping-basket -->
-      <button data-test="cat-groceries" type="button" :disabled="busy" class="chip" @click="log('groceries')">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-          fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
-          stroke-linejoin="round" aria-hidden="true">
-          <path d="m5 11 4-7"/>
-          <path d="m19 11-4-7"/>
-          <path d="M2 11h20"/>
-          <path d="m3.5 11 1.6 7.4a2 2 0 0 0 2 1.6h9.8a2 2 0 0 0 2-1.6l1.7-7.4"/>
-          <path d="m9 11 1 9"/>
-          <path d="M4.5 15.5h15"/>
-          <path d="m15 11-1 9"/>
-        </svg>
-        Groceries
-      </button>
-
-      <!-- Shopping — shopping-bag -->
-      <button data-test="cat-shopping" type="button" :disabled="busy" class="chip" @click="log('shopping')">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-          fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
-          stroke-linejoin="round" aria-hidden="true">
-          <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
-          <line x1="3" y1="6" x2="21" y2="6"/>
-          <path d="M16 10a4 4 0 0 1-8 0"/>
-        </svg>
-        Shopping
-      </button>
-
-      <!-- Bills — receipt -->
-      <button data-test="cat-bills" type="button" :disabled="busy" class="chip" @click="log('bills')">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-          fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
-          stroke-linejoin="round" aria-hidden="true">
-          <polyline points="1 6 1 22 23 22 23 6"/>
-          <path d="M1 6 12 1l11 5"/>
-          <path d="M8 22V12h8v10"/>
-        </svg>
-        Bills
-      </button>
-
-      <!-- Other — circle-dollar-sign -->
-      <button data-test="cat-other" type="button" :disabled="busy" class="chip" @click="log('other')">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-          fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
-          stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="10"/>
-          <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/>
-          <path d="M12 18V6"/>
-        </svg>
-        Other
-      </button>
-
-    </div>
   </div>
 </template>
 
@@ -172,7 +317,44 @@ async function log(category: SpendCategory) {
   padding: 16px;
 }
 
-/* ── Amount input row ────────────────────────────────────── */
+/* ── Mode toggle ─────────────────────────────────────────────────────────── */
+.quicklog__toggle {
+  display: flex;
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.quicklog__toggle-btn {
+  flex: 1;
+  height: 40px;
+  min-height: 44px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-base);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 150ms ease-out, color 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+.quicklog__toggle-btn--active {
+  background: var(--primary);
+  color: var(--on-primary);
+  box-shadow: 0 1px 4px rgba(30, 64, 175, 0.25);
+}
+
+.quicklog__toggle-btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* ── Amount input row ────────────────────────────────────────────────────── */
 .quicklog__input-row {
   display: flex;
   align-items: center;
@@ -216,7 +398,7 @@ async function log(category: SpendCategory) {
   font-weight: 400;
 }
 
-/* ── Category chips ──────────────────────────────────────── */
+/* ── Category chips ──────────────────────────────────────────────────────── */
 .chips {
   display: flex;
   gap: 8px;
@@ -254,12 +436,95 @@ async function log(category: SpendCategory) {
   border-color: var(--primary);
 }
 
+.chip--active {
+  border-color: var(--positive);
+  background: rgba(5, 150, 105, 0.10);
+  color: var(--positive);
+}
+
 .chip:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
 
 .chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* ── Income account field ────────────────────────────────────────────────── */
+.quicklog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quicklog__field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.quicklog__select {
+  height: 48px;
+  padding: 0 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-input);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-base);
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 40px;
+  transition: border-color 150ms ease-out;
+}
+
+.quicklog__select:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px rgba(30,64,175,.12);
+}
+
+/* ── Income submit button ────────────────────────────────────────────────── */
+.quicklog__income-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 48px;
+  border: none;
+  border-radius: var(--radius-btn);
+  background: var(--positive);
+  color: #fff;
+  font-family: var(--font-base);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+}
+
+.quicklog__income-btn:active:not(:disabled) {
+  transform: scale(0.97);
+  opacity: 0.9;
+}
+
+.quicklog__income-btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.quicklog__income-btn:disabled {
   opacity: 0.5;
   cursor: default;
   pointer-events: none;

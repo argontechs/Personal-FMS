@@ -174,6 +174,55 @@ describe('Activity page', () => {
       expect(text).not.toContain('adjustment')
       expect(text).not.toContain('transfer')
     })
+
+    it('does NOT filter out income category rows — they must be visible', async () => {
+      const incomeTxn = makeTxn({
+        id: 20,
+        date: '2026-06-19',
+        amount_cents: 500000,  // +RM5000
+        direction: 'income',
+        category: 'income',
+        note: 'Salary',
+      })
+      const w = mountActivity(async (url: string) => {
+        if (url.startsWith('/api/transactions')) return [incomeTxn]
+        return []
+      })
+      await flushPromises()
+
+      const rows = w.findAll('[role="listitem"]')
+      expect(rows.length).toBe(1)
+
+      // Amount shows as positive green
+      const amounts = w.findAll('.list-row__amount')
+      expect(amounts.length).toBe(1)
+      expect(amounts[0].classes()).toContain('list-row__amount--income')
+      expect(amounts[0].text()).toContain('+RM5,000.00')
+    })
+
+    it('manually-logged income row renders as green +RM amount', async () => {
+      const incomeTxn = makeTxn({
+        id: 21,
+        date: '2026-06-19',
+        amount_cents: 150000,  // +RM1500
+        direction: 'income',
+        category: 'income',
+        source: 'manual',
+        note: 'Side gig',
+      })
+      const w = mountActivity(async (url: string) => {
+        if (url.startsWith('/api/transactions')) return [incomeTxn]
+        return []
+      })
+      await flushPromises()
+
+      const amounts = w.findAll('.list-row__amount')
+      expect(amounts[0].classes()).toContain('list-row__amount--income')
+      expect(amounts[0].text()).toMatch(/\+RM1[,.]?500\.00/)
+
+      // Note visible
+      expect(w.text()).toContain('Side gig')
+    })
   })
 
   // ── Delete + undo ────────────────────────────────────────────────────────────
