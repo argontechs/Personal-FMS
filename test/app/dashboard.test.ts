@@ -37,10 +37,32 @@ const mockAccounts = [
   { id: 5, type: 'savings', balance_cents: 45000 },
 ]
 
+const mockMoneyMoves = [
+  {
+    key: 'clear-card-with-aia',
+    kind: 'action',
+    title: 'Clear the 18% card with your AIA Assurance Account',
+    explanation:
+      'Withdraw ~RM7,400.76 from your AIA Assurance Account to clear the 18% card outright — a guaranteed ~18% return. Ask AIA about partial-withdrawal terms + coverage impact.',
+    suggestedAmountCents: 740076,
+    status: 'todo' as const,
+  },
+  {
+    key: 'pause-ge-ilp',
+    kind: 'confirm',
+    title: 'Pause the Great Eastern ILP',
+    explanation: "Confirm you've paused the Great Eastern ILP (RM350/mo) with GE.",
+    suggestedAmountCents: null,
+    status: 'todo' as const,
+  },
+]
+
 // Active forecast override — set per-test to swap the /api/forecast response.
 let activeForecast: typeof mockForecast = mockForecast
 let activeGoals: typeof mockGoals = mockGoals
 let activeAccounts: typeof mockAccounts = mockAccounts
+let activeMoneyMoves: typeof mockMoneyMoves = mockMoneyMoves
+let lastRefreshMoneyMoves: ReturnType<typeof vi.fn>
 
 // refreshForecast and refreshGoals spies — captured per mount so tests can check calls.
 let lastRefreshForecast: ReturnType<typeof vi.fn>
@@ -64,6 +86,11 @@ vi.mock('#app', () => ({
       return { data: ref(activeGoals), refresh, error: ref(goalsError) }
     }
     if (url === '/api/accounts') return { data: ref(activeAccounts), refresh: vi.fn(), error: ref(null) }
+    if (url === '/api/money-moves') {
+      const refresh = vi.fn(async () => {})
+      lastRefreshMoneyMoves = refresh
+      return { data: ref(activeMoneyMoves), refresh, error: ref(null) }
+    }
     return { data: ref(null), refresh: vi.fn(), error: ref(null) }
   }),
   useRuntimeConfig: vi.fn(() => ({ public: {} })),
@@ -116,6 +143,7 @@ beforeEach(() => {
   activeForecast = mockForecast
   activeGoals = mockGoals
   activeAccounts = mockAccounts
+  activeMoneyMoves = mockMoneyMoves
   forecastError = null
   goalsError = null
   vi.stubGlobal('$fetch', vi.fn(async () => ({ id: 42 })))
@@ -479,5 +507,85 @@ describe('Dashboard error state', () => {
     await flushPromises()
     expect(w.find('[data-test="move-to-ef"]').exists()).toBe(false)
     expect(w.find('[data-test="payday-prompt"]').exists()).toBe(false)
+  })
+})
+
+// ─── Money moves (§11/§15 advisory levers) ──────────────────────────────────
+describe('Money moves', () => {
+  it('renders the AIA-withdrawal move with its explanation', async () => {
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[data-test="money-moves-section"]').exists()).toBe(true)
+    expect(w.find('[data-test="money-move-clear-card-with-aia"]').exists()).toBe(true)
+    expect(w.text()).toContain('AIA Assurance Account')
+    expect(w.text()).toContain('guaranteed ~18% return')
+    expect(w.text()).toContain('RM7,400.76') // suggested amount = card balance
+  })
+
+  it('renders the GE-ILP-pause confirm move', async () => {
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[data-test="money-move-pause-ge-ilp"]').exists()).toBe(true)
+    expect(w.text()).toContain('Great Eastern ILP')
+    expect(w.text()).toContain('RM350/mo')
+  })
+
+  it('renders Mark-done and Dismiss buttons per move', async () => {
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[data-test="money-move-done-clear-card-with-aia"]').exists()).toBe(true)
+    expect(w.find('[data-test="money-move-dismiss-clear-card-with-aia"]').exists()).toBe(true)
+  })
+
+  it('Mark done PATCHes the move status and refreshes', async () => {
+    const mockFetch = vi.fn(async () => ({ key: 'clear-card-with-aia', status: 'done' }))
+    vi.stubGlobal('$fetch', mockFetch)
+
+    const w = mountDashboard()
+    await flushPromises()
+    await w.find('[data-test="money-move-done-clear-card-with-aia"]').trigger('click')
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/money-moves/clear-card-with-aia', expect.objectContaining({
+      method: 'PATCH',
+      body: { status: 'done' },
+    }))
+    expect(lastRefreshMoneyMoves).toHaveBeenCalled()
+  })
+
+  it('Dismiss PATCHes status=dismissed and refreshes', async () => {
+    const mockFetch = vi.fn(async () => ({ key: 'pause-ge-ilp', status: 'dismissed' }))
+    vi.stubGlobal('$fetch', mockFetch)
+
+    const w = mountDashboard()
+    await flushPromises()
+    await w.find('[data-test="money-move-dismiss-pause-ge-ilp"]').trigger('click')
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledWith('/api/money-moves/pause-ge-ilp', expect.objectContaining({
+      method: 'PATCH',
+      body: { status: 'dismissed' },
+    }))
+    expect(lastRefreshMoneyMoves).toHaveBeenCalled()
+  })
+
+  it('shows a quiet "Done" state (no action buttons) for a done move', async () => {
+    activeMoneyMoves = [
+      { ...mockMoneyMoves[0], status: 'done' as const },
+      mockMoneyMoves[1],
+    ]
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[data-test="money-move-done-badge"]').exists()).toBe(true)
+    // Mark-done button is gone in the done state; Undo is shown instead
+    expect(w.find('[data-test="money-move-done-clear-card-with-aia"]').exists()).toBe(false)
+    expect(w.find('[data-test="money-move-undo-clear-card-with-aia"]').exists()).toBe(true)
+  })
+
+  it('hides the money-moves section when no moves are returned', async () => {
+    activeMoneyMoves = []
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[data-test="money-moves-section"]').exists()).toBe(false)
   })
 })

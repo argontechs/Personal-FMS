@@ -166,3 +166,13 @@ export const holdings = sqliteTable('holdings', {
   created_at: integer('created_at').notNull(),
   updated_at: integer('updated_at').notNull(),
 })
+
+// §11/§15 money-move levers — persisted action-item status only.
+// The MOVES themselves are derived live in GET /api/money-moves; this table holds
+// only the user-chosen status per move_key. Advisory: NEVER auto-moves money.
+export const moneyMoveState = sqliteTable('money_move_state', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  move_key: text('move_key').notNull().unique(),
+  status: text('status', { enum: ['todo', 'done', 'dismissed'] }).notNull().default('todo'),
+  updated_at: integer('updated_at').notNull(),
+})

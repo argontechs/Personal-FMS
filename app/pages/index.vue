@@ -9,6 +9,7 @@ import SurplusRollup from '~/components/forecast/SurplusRollup.vue'
 import CardDebtCard from '~/components/debt/CardDebtCard.vue'
 import GoalProgressBar from '~/components/forecast/GoalProgressBar.vue'
 import QuickLog from '~/components/quicklog/QuickLog.vue'
+import MoneyMoves from '~/components/forecast/MoneyMoves.vue'
 import { useSafeToSpend } from '~/composables/useSafeToSpend'
 import { usePush } from '~/composables/usePush'
 import { navigateTo } from '#app'
@@ -18,6 +19,9 @@ import { navigateTo } from '#app'
 const { data: forecast, refresh: refreshForecast, error: forecastError } = await useFetch('/api/forecast')
 const { data: debt, error: debtError } = await useFetch('/api/debt')
 const { data: goals, refresh: refreshGoals, error: goalsError } = await useFetch('/api/goals/progress')
+
+// §11/§15 money-move levers — advisory action items, derived server-side.
+const { data: moneyMoves, refresh: refreshMoneyMoves } = await useFetch('/api/money-moves')
 
 // §4 §14 #20: client-side STS mirror — seed from server value, optimistic on quick-log.
 // useSafeToSpend computes STS live with registerSpend reducing daily immediately.
@@ -434,7 +438,17 @@ const showRemindersOn = computed(
         </div>
       </section>
 
-      <!-- 4. Debt card -->
+      <!-- 4. Money moves — §11/§15 high-value advisory levers (derived + persisted status) -->
+      <section
+        v-if="Array.isArray(moneyMoves) && moneyMoves.length"
+        class="dashboard__section"
+        data-test="money-moves-section"
+      >
+        <p class="section-label">Money moves</p>
+        <MoneyMoves :moves="moneyMoves" @refresh="refreshMoneyMoves" />
+      </section>
+
+      <!-- 5. Debt card -->
       <section v-if="debt" class="dashboard__section">
         <p class="section-label">Credit Card</p>
         <CardDebtCard :debt="debt" />
