@@ -4,6 +4,9 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue'
 import { useFetch } from '#app'
+// Explicit import (not Nuxt auto-import) so the component resolves under the vitest harness too —
+// consistent with every other page; the build still statically inlines it.
+import RecurringRow from '~/components/RecurringRow.vue'
 
 // ─── Constants (match server validation) ─────────────────────────────────────
 const VALID_CADENCES = ['monthly', 'weekly', 'biweekly', 'yearly'] as const
