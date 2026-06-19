@@ -13,7 +13,7 @@ import {
   IDBTransaction,
   IDBVersionChangeEvent,
 } from 'fake-indexeddb';
-import { useOfflineQueue, registerAutoFlush } from '../../app/composables/useOfflineQueue';
+import { useOfflineQueue, registerAutoFlush, __resetFlushState } from '../../app/composables/useOfflineQueue';
 // Import the plugin default export (will be a function due to defineNuxtPlugin shim)
 import offlineFlushPlugin from '../../app/plugins/offline-flush.client';
 
@@ -34,7 +34,13 @@ Object.assign(globalThis, {
 
 // Stub Nuxt's global $fetch.
 const posted: any[] = [];
-beforeEach(() => {
+beforeEach(async () => {
+  // Drain any fire-and-forget flush promise from the previous test before we
+  // swap out $fetch — this ensures in-flight POSTs land on the old mock, not
+  // the new one, so they cannot pollute the upcoming test's `posted` array.
+  await new Promise(r => setTimeout(r, 0));
+  // Reset module-level flush singleton so cross-test in-flight guard doesn't leak.
+  __resetFlushState();
   // Fresh isolated IndexedDB per test — prevents state bleeding between tests.
   globalThis.indexedDB = new IDBFactory();
   posted.length = 0;

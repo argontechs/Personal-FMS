@@ -71,6 +71,9 @@ export function useOfflineQueue() {
   return { enqueue, pending, flush };
 }
 
+/** Test-only: resets the module-level flushInFlight singleton between test cases. */
+export function __resetFlushState() { flushInFlight = null; }
+
 // Wire flush-on-open / flush-on-reconnect. Pass a custom window in tests; defaults to globalThis.window.
 export function registerAutoFlush(win: any = (globalThis as any).window): void {
   if (!win) return;
