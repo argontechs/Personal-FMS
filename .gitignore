@@ -16,3 +16,4 @@ dist
 *.pdf
 .claude/sdd/
 /.claude
+.claude/worktrees/
