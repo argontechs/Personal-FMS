@@ -595,4 +595,24 @@ describe('transactions API — system rows are NOT editable/deletable', () => {
     expect(updated.amount_cents).toBe(175000)
     expect(updated.amount_cents).toBeGreaterThan(0)
   })
+
+  it('PATCH cannot relabel a user EXPENSE into category income (crafted request) — 400', async () => {
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'craft-relabel-cat', date: '2026-06-18', amount_cents: -1250, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' },
+    })
+    // expense kept negative but category flipped to 'income' → would skew the category-based rollup
+    await expect(authFetch(`/api/transactions/${id}`, { method: 'PATCH', body: { category: 'income' } }))
+      .rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('PATCH cannot make an income row carry a non-income category (crafted request) — 400', async () => {
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'craft-relabel-dir', date: '2026-06-18', amount_cents: -1250, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' },
+    })
+    // direction→income while category stays 'food' → incoherent income row
+    await expect(authFetch(`/api/transactions/${id}`, { method: 'PATCH', body: { direction: 'income', amount_cents: 1250 } }))
+      .rejects.toMatchObject({ statusCode: 400 })
+  })
 })

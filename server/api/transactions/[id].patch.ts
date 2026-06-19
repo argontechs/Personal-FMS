@@ -89,6 +89,18 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'expense amount_cents must be non-positive' })
   }
 
+  // Re-check editability on the EFFECTIVE (merged) row: a crafted PATCH must not relabel a
+  // genuine user row into a system/income classification. recomputeBalances is category-agnostic
+  // so balances stay safe, but computeMonthlyRollup sums by category='income' — a mislabeled row
+  // would skew reported income/surplus + the next-cycle STS. Reject anything incoherent.
+  const effCategory = (patch.category ?? existing.category) as string
+  if (!isEditableTxn({ direction: effDirection, category: effCategory, debt_id: existing.debt_id, source: existing.source })) {
+    throw createError({ statusCode: 400, statusMessage: 'resulting category/direction is not a valid user transaction' })
+  }
+  if (effDirection === 'income' && effCategory !== 'income') {
+    throw createError({ statusCode: 400, statusMessage: 'income transactions must use the income category' })
+  }
+
   db.update(transactions).set(patch).where(eq(transactions.id, id)).run()
   // Rebuild all account/debt balances from ledger — the ONLY way to keep balances correct after
   // an amount/date change without reimplementing the full double-entry math here.
