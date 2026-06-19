@@ -28,8 +28,9 @@ export default defineEventHandler(async (event) => {
 
   if ('amount_cents' in b) {
     const ac = b.amount_cents
-    if (typeof ac !== 'number' || !Number.isInteger(ac) || ac <= 0) {
-      throw createError({ statusCode: 400, statusMessage: 'amount_cents must be a positive integer' })
+    // Match POST: non-negative (0 is valid — e.g. SPayLater base template carries amounts in remaining_installments_json).
+    if (typeof ac !== 'number' || !Number.isInteger(ac) || ac < 0) {
+      throw createError({ statusCode: 400, statusMessage: 'amount_cents must be a non-negative integer' })
     }
   }
 
