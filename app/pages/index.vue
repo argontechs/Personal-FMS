@@ -10,6 +10,7 @@ import CardDebtCard from '~/components/debt/CardDebtCard.vue'
 import GoalProgressBar from '~/components/forecast/GoalProgressBar.vue'
 import QuickLog from '~/components/quicklog/QuickLog.vue'
 import { useSafeToSpend } from '~/composables/useSafeToSpend'
+import { navigateTo } from '#app'
 
 // All three fetches are online-first; Nuxt will throw on 401 → redirect handled by nuxtjs session
 // layer or app-level error handler.
@@ -48,6 +49,12 @@ const cashAccountId = computed(() => {
   return cash?.id ?? arr[0]?.id ?? 1
 })
 
+// Logout: clear server session then redirect to login page.
+async function handleLogout() {
+  await $fetch('/api/auth/logout', { method: 'POST' })
+  await navigateTo('/login')
+}
+
 // After a quick-log: optimistically decrement STS via registerSpend, then re-fetch to reconcile.
 async function onLogged(txn: any) {
   const spentCents = Math.abs(txn.amount_cents ?? 0)
@@ -58,6 +65,11 @@ async function onLogged(txn: any) {
 
 <template>
   <main class="dashboard">
+    <!-- Top bar: logout affordance -->
+    <div class="dashboard__topbar">
+      <button class="dashboard__logout" type="button" @click="handleLogout">Log out</button>
+    </div>
+
     <!-- 1. Safe-to-Spend Hero — dominant primary number -->
     <SafeToSpendHero v-if="displaySts" :sts="displaySts" />
     <div v-else class="dashboard__skeleton" aria-label="Loading…" />
@@ -144,5 +156,29 @@ async function onLogged(txn: any) {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.dashboard__topbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  min-height: 32px;
+}
+
+.dashboard__logout {
+  background: none;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: color 0.1s, border-color 0.1s;
+}
+
+.dashboard__logout:hover {
+  color: #dc2626;
+  border-color: #fca5a5;
 }
 </style>

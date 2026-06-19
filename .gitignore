@@ -8,3 +8,6 @@ dist
 /data
 /backups
 .DS_Store
+.playwright-mcp
+*.png
+/tmp-screens

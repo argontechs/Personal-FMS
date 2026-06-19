@@ -18,3 +18,11 @@ export function defineNuxtComponent(component: any) {
 export function defineNuxtPlugin(setup: () => void) {
   return setup
 }
+
+/** Stub — tests override this with vi.fn() */
+export const navigateTo = (_to: string) => {}
+
+/** Pass-through: returns the middleware function unchanged so tests can call it directly */
+export function defineNuxtRouteMiddleware(fn: (...args: any[]) => any) {
+  return fn
+}
