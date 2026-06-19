@@ -8,7 +8,7 @@ import { createDb } from '../../../server/db/index'
 import { runMigrations } from '../../../server/db/migrate'
 import { bootstrapUser } from '../../../scripts/seed-user'
 import { seedDatabase } from '../../../server/db/seed'
-import { transactions, accounts } from '../../../server/db/schema'
+import { transactions, accounts, goals, debts } from '../../../server/db/schema'
 import { eq } from 'drizzle-orm'
 
 const TEST_DB = './data/streaks-test.sqlite'
@@ -162,5 +162,32 @@ describe('streaks API — ef-1000 milestone', () => {
     const ef1000 = data.milestones.find((m: any) => m.key === 'ef-1000')
     expect(ef1000?.achieved).toBe(true)
     expect(ef1000?.progress).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// card-paid milestone tracks the CREDIT-CARD debt specifically — not the sum
+// of every debt (regression: it must flip true when the card hits 0 even while
+// the car loan / PTPTN / student loans are still outstanding).
+// ---------------------------------------------------------------------------
+
+describe('streaks API — card-paid milestone', () => {
+  it('achieved when the card balance reaches 0, even while other debts remain', async () => {
+    // Zero ONLY the credit-card debt (the one linked to the debt_payoff goal).
+    const h = createDb(TEST_DB)
+    const cardGoal = h.db.select().from(goals).where(eq(goals.type, 'debt_payoff')).get() as any
+    h.db.update(debts).set({ balance_cents: 0 }).where(eq(debts.id, cardGoal.debt_id)).run()
+    const otherOutstanding = (h.db.select().from(debts).all() as any[]).filter(
+      (d) => d.id !== cardGoal.debt_id && d.balance_cents > 0
+    )
+    h.sqlite.close()
+
+    // Guard: the scenario is only meaningful if other debts are still non-zero.
+    expect(otherOutstanding.length).toBeGreaterThan(0)
+
+    const data = await authFetch('/api/streaks')
+    const cardPaid = data.milestones.find((m: any) => m.key === 'card-paid')
+    expect(cardPaid?.achieved).toBe(true)
+    expect(cardPaid?.progress).toBe(1)
   })
 })

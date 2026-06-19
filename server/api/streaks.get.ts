@@ -4,7 +4,7 @@ import { defineEventHandler } from 'h3'
 import { notInArray, sql } from 'drizzle-orm'
 import { requireSession } from '../utils/requireSession'
 import { db } from '../db'
-import { transactions, debts } from '../db/schema'
+import { transactions } from '../db/schema'
 import { computeStreaks } from '../utils/streaks'
 import { efBalanceCents, readGoals } from '../utils/goalReads'
 import { todayMYT } from '../utils/mytDate'
@@ -44,15 +44,12 @@ export default defineEventHandler((event) => {
   const lastLoggedDate = sortedDates.length > 0 ? sortedDates[sortedDates.length - 1] : null
 
   // ── 3. EF balance & CC debt ────────────────────────────────────────────────
-  const { ef } = readGoals(db)
+  const { ef, killCard } = readGoals(db)
   const efBal = efBalanceCents(db, ef.accountId)
 
-  // Credit-card debt balance — sum of all revolving debt balances.
-  const ccDebtRow = db
-    .select({ total: sql<number>`COALESCE(SUM(${debts.balance_cents}), 0)` })
-    .from(debts)
-    .get()
-  const ccDebtTotal = Number(ccDebtRow?.total ?? 0)
+  // Credit-card debt balance — the canonical card balance (via the debt_payoff
+  // goal's linked debt), NOT the sum of every debt. Same read goals/debt views use.
+  const ccDebtTotal = killCard.currentCents
 
   // ── 4. Total user-facing spend transaction count ───────────────────────────
   const countRow = db
@@ -95,8 +92,13 @@ export default defineEventHandler((event) => {
     {
       key: 'card-paid',
       label: 'Credit card cleared',
-      achieved: ccDebtTotal === 0,
-      progress: ccDebtTotal === 0 ? 1 : 0,
+      achieved: ccDebtTotal <= 0,
+      progress:
+        killCard.baselineCents > 0
+          ? Math.min(Math.max((killCard.baselineCents - ccDebtTotal) / killCard.baselineCents, 0), 1)
+          : ccDebtTotal <= 0
+            ? 1
+            : 0,
       detail: 'Zero card debt',
     },
     {
