@@ -6,7 +6,7 @@ import { ref, computed } from 'vue'
 import { useFetch } from '#app'
 import CategoryIcon from '~/components/CategoryIcon.vue'
 import { SPEND_CATEGORIES } from '../../shared/categories'
-import { formatRM } from '../../server/utils/money'
+import { formatRM } from '../../shared/types'
 
 interface BudgetRow {
   category: string
