@@ -4,7 +4,7 @@
 import { db } from '../db/index';
 import { recurringItems, debts, accounts, transactions } from '../db/schema';
 import { postTransaction } from './post';
-import { todayMYT, nextDueDate } from './mytDate';
+import { todayMYT, nextDueDate, clampDay } from './mytDate';
 import { and, eq, lte } from 'drizzle-orm';
 
 // Maps a template's free-text category into the transactions enum.
@@ -107,48 +107,128 @@ export function runPostRecurring(asOf?: string): { posted: number; interest: num
   }
 
   // -----------------------------------------------------------------------
-  // 2. Card interest accrual
-  // Only fires on the card's statement_day, only while bt_status !== 'active'.
+  // 2. Card interest accrual (CATCH-UP)
+  // For each revolving card, accrue interest for EVERY statement month whose
+  // statement day has already passed but which has no interest row yet — not
+  // just the current statement-day. This matters because the daily cron runs
+  // once; if the box is down/asleep on the statement day, exact-equality
+  // (statement_day === todayDay) would silently skip that month's 18% forever.
+  // Bill/income posting catches up via next_due_date <= today; interest must too.
+  //
   // interest_cents = floor(balance × apr_bps / 120000)
   //   (apr_bps / 100 = % p.a.; ÷ 12 months → / 1200; bps ÷ 100 → / 120000)
   // Idempotent: UUID `interest-<debt_id>-<YYYY-MM>` is unique per card per month.
+  //   A month is "passed" when clampDay(year, month, statement_day) <= today.
   // Amount is POSITIVE so it grows the debt (A1: debt.balance += amount_cents).
+  //
+  // Watermark: walk forward from the watermark month (the month AFTER the last
+  // accrued interest row, or the card's creation month on first ever run) up to
+  // the current period, posting any month whose statement day has already passed
+  // and has no interest row yet. Walking oldest → newest means a multi-month
+  // catch-up accrues in chronological order (each on the then-current balance).
+  // Never posts a future month (statement day not yet reached). A hard back-stop
+  // bounds the work so a long-dormant box can't replay years of phantom interest.
   // -----------------------------------------------------------------------
   let interestPosted = 0;
-  const todayDay = Number(today.slice(8, 10));
+  const [todayYear, todayMonth] = today.split('-').map(Number);
   const cards = db.select().from(debts)
-    .where(and(
-      eq(debts.type, 'revolving'),
-      eq(debts.statement_day, todayDay),
-    )).all();
+    .where(eq(debts.type, 'revolving')).all();
+
+  // Hard back-stop: never look further back than this many months from today,
+  // even if the watermark says we should (guards against a card seeded with an
+  // old created_at, or a box that was off for a year).
+  const MAX_CATCHUP_MONTHS = 12;
 
   for (const card of cards) {
     // Skip if under balance-transfer promo (interest waived).
     if (card.bt_status === 'active') continue;
     if (card.apr_bps == null || card.linked_account_id == null) continue;
+    if (card.statement_day == null) continue;
 
-    const interestCents = Math.floor((card.balance_cents * card.apr_bps) / 120000);
-    if (interestCents <= 0) continue;
+    // Lower watermark = the month after the most recently accrued interest row.
+    // No prior row → anchor to the card's creation month so we never invent
+    // interest for months before the card existed.
+    const lastInterest = db.select({ date: transactions.date }).from(transactions)
+      .where(and(eq(transactions.debt_id, card.id), eq(transactions.category, 'interest')))
+      .orderBy(transactions.date).all();
+    let fromYear: number;
+    let fromMonth: number; // 1..12
+    if (lastInterest.length > 0) {
+      // Start the month AFTER the latest accrued statement month.
+      const [ly, lm] = lastInterest[lastInterest.length - 1].date.split('-').map(Number);
+      const d = new Date(Date.UTC(ly, lm, 1)); // lm is 1..12 → next month (0-indexed lm)
+      fromYear = d.getUTCFullYear();
+      fromMonth = d.getUTCMonth() + 1;
+    } else {
+      const created = new Date(card.created_at);
+      // created_at is an epoch ms; treat its UTC year/month as the anchor.
+      fromYear = created.getUTCFullYear();
+      fromMonth = created.getUTCMonth() + 1;
+    }
 
-    // One interest row per card per statement month — idempotent via UUID.
-    const uuid = `interest-${card.id}-${today.slice(0, 7)}`;
-    const dup = db.select({ id: transactions.id }).from(transactions)
-      .where(eq(transactions.uuid, uuid)).get();
-    if (dup) continue;
+    // Clamp the lower watermark to the hard back-stop.
+    const floor = new Date(Date.UTC(todayYear, (todayMonth - 1) - MAX_CATCHUP_MONTHS, 1));
+    if (
+      fromYear < floor.getUTCFullYear() ||
+      (fromYear === floor.getUTCFullYear() && fromMonth - 1 < floor.getUTCMonth())
+    ) {
+      fromYear = floor.getUTCFullYear();
+      fromMonth = floor.getUTCMonth() + 1;
+    }
 
-    // Positive amount_cents → postTransaction: debt.balance += interestCents (grows debt)
-    // and card account.balance += -interestCents (makes balance more negative).
-    postTransaction({
-      uuid,
-      date: today,
-      amount_cents: interestCents,
-      direction: 'expense',
-      category: 'interest',
-      account_id: card.linked_account_id,
-      debt_id: card.id,
-      source: 'auto',
-    });
-    interestPosted++;
+    // Build candidate months from watermark → current (chronological).
+    const candidates: string[] = [];
+    let cursor = new Date(Date.UTC(fromYear, fromMonth - 1, 1));
+    const end = new Date(Date.UTC(todayYear, todayMonth - 1, 1));
+    while (cursor <= end) {
+      const y = cursor.getUTCFullYear();
+      const m = cursor.getUTCMonth() + 1; // 1..12
+      // Statement date for this month, clamped to month length (e.g. 31 → 30).
+      const stDay = clampDay(y, m, card.statement_day);
+      const stDate = `${y}-${String(m).padStart(2, '0')}-${String(stDay).padStart(2, '0')}`;
+      // Only months whose statement day has already passed (or is today) qualify.
+      // This naturally excludes the current month when statement_day > todayDay.
+      if (stDate <= today) candidates.push(`${y}-${String(m).padStart(2, '0')}`);
+      cursor = new Date(Date.UTC(y, m, 1)); // advance one month
+    }
+
+    for (const ym of candidates) {
+      // One interest row per card per statement month — idempotent via UUID.
+      const uuid = `interest-${card.id}-${ym}`;
+      const dup = db.select({ id: transactions.id }).from(transactions)
+        .where(eq(transactions.uuid, uuid)).get();
+      if (dup) continue;
+
+      // Recompute on the CURRENT (possibly already-grown) balance — same formula
+      // the legacy same-day path used. Re-read isn't needed: postTransaction below
+      // mutates the row, and the next loop iteration reads the fresh value.
+      const fresh = db.select({ balance_cents: debts.balance_cents }).from(debts)
+        .where(eq(debts.id, card.id)).get();
+      const balanceCents = fresh?.balance_cents ?? card.balance_cents;
+      const interestCents = Math.floor((balanceCents * card.apr_bps) / 120000);
+      if (interestCents <= 0) continue;
+
+      // Date the row on the statement day of that month (clamped) so it lands in
+      // the right cycle, not on `today`. For the current month this is the
+      // statement day that just passed; for catch-up months it's historical.
+      const [cy, cm] = ym.split('-').map(Number);
+      const rowDay = clampDay(cy, cm, card.statement_day);
+      const rowDate = `${cy}-${String(cm).padStart(2, '0')}-${String(rowDay).padStart(2, '0')}`;
+
+      // Positive amount_cents → postTransaction: debt.balance += interestCents (grows debt)
+      // and card account.balance += -interestCents (makes balance more negative).
+      postTransaction({
+        uuid,
+        date: rowDate,
+        amount_cents: interestCents,
+        direction: 'expense',
+        category: 'interest',
+        account_id: card.linked_account_id,
+        debt_id: card.id,
+        source: 'auto',
+      });
+      interestPosted++;
+    }
   }
 
   // -----------------------------------------------------------------------

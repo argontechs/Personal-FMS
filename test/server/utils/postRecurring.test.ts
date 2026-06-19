@@ -321,10 +321,12 @@ describe('runPostRecurring', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // 10. Card interest: NOT accrued on a non-statement-day
+  // 10. Card interest: NOT accrued BEFORE the statement day has passed
+  // (was run on the 16th — now the 14th — because catch-up correctly posts the
+  // missed 15th on any later day; "no interest" only holds before the cycle ends.)
   // ---------------------------------------------------------------------------
-  it('does NOT accrue card interest on a non-statement-day', () => {
-    const now = Date.now();
+  it('does NOT accrue card interest before the statement day passes', () => {
+    const now = Date.parse('2026-06-01T00:00:00Z'); // created before the statement day
     const [cardAcct] = db.insert(accounts).values({
       name: 'Credit Card', type: 'card' as any, balance_cents: -740076,
       credit_limit_cents: 798740, created_at: now, updated_at: now,
@@ -336,7 +338,7 @@ describe('runPostRecurring', () => {
       created_at: now, updated_at: now,
     }).run();
 
-    const r = runPostRecurring('2026-06-16'); // NOT the 15th
+    const r = runPostRecurring('2026-06-14'); // statement day (15th) NOT reached yet
     expect(r.interest).toBe(0);
     const interestRows = db.select().from(transactions).all().filter(t => t.category === 'interest');
     expect(interestRows.length).toBe(0);
@@ -457,5 +459,112 @@ describe('runPostRecurring', () => {
 
     const item = db.select().from(recurringItems).all().find(i => i.name === 'Unifi Auto')!;
     expect(item.next_due_date).toBe('2026-07-05');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 13. Card interest CATCH-UP: box was down on the statement day.
+  //     Statement_day = 15; the cron never ran on the 15th. A run on the 20th
+  //     must still post exactly ONE interest row for that statement month.
+  // ---------------------------------------------------------------------------
+  it('catches up missed statement-day interest (box down on the 15th, run on the 20th)', () => {
+    const now = Date.parse('2026-06-01T00:00:00Z'); // card existed before the statement day
+    const [cardAcct] = db.insert(accounts).values({
+      name: 'Credit Card', type: 'card' as any, balance_cents: -740076,
+      credit_limit_cents: 798740, created_at: now, updated_at: now,
+    }).returning().all();
+    const [cardDebt] = db.insert(debts).values({
+      name: 'Credit Card', type: 'revolving' as any, balance_cents: 740076,
+      rate_type: 'apr' as any, apr_bps: 1800, statement_day: 15, due_day: 5,
+      bt_status: 'none' as any, linked_account_id: cardAcct.id,
+      created_at: now, updated_at: now,
+    }).returning().all();
+
+    // No run happened on the 15th. First run of the period is the 20th.
+    const r = runPostRecurring('2026-06-20');
+    expect(r.interest).toBe(1); // missed accrual is caught up
+
+    const interestRows = db.select().from(transactions).all().filter(t => t.category === 'interest');
+    expect(interestRows.length).toBe(1);
+    // Same amount as the legacy same-day path: floor(740076 × 1800 / 120000) = 11101.
+    expect(interestRows[0].amount_cents).toBe(11101);
+    // Idempotency key is per statement MONTH; row is dated on the statement day.
+    expect(interestRows[0].uuid).toBe(`interest-${cardDebt.id}-2026-06`);
+    expect(interestRows[0].date).toBe('2026-06-15');
+
+    // Debt grew by the interest (single-ledger authority).
+    const debtAfter = db.select().from(debts).where(eq(debts.id, cardDebt.id as number)).get();
+    expect(debtAfter!.balance_cents).toBe(751177);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 14. Catch-up is idempotent: running twice never double-posts.
+  // ---------------------------------------------------------------------------
+  it('catch-up interest is idempotent — running twice does not double-post', () => {
+    const now = Date.parse('2026-06-01T00:00:00Z');
+    const [cardAcct] = db.insert(accounts).values({
+      name: 'Credit Card', type: 'card' as any, balance_cents: -740076,
+      credit_limit_cents: 798740, created_at: now, updated_at: now,
+    }).returning().all();
+    db.insert(debts).values({
+      name: 'Credit Card', type: 'revolving' as any, balance_cents: 740076,
+      rate_type: 'apr' as any, apr_bps: 1800, statement_day: 15, due_day: 5,
+      bt_status: 'none' as any, linked_account_id: cardAcct.id,
+      created_at: now, updated_at: now,
+    }).run();
+
+    const r1 = runPostRecurring('2026-06-20'); // catch up the missed 15th
+    const r2 = runPostRecurring('2026-06-20'); // immediate rerun
+    expect(r1.interest).toBe(1);
+    expect(r2.interest).toBe(0); // no second row for the same statement month
+
+    const interestRows = db.select().from(transactions).all().filter(t => t.category === 'interest');
+    expect(interestRows.length).toBe(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 15. No future month: a statement day that has not yet passed is never posted.
+  //     statement_day=25, today=20 → June not yet due, no prior month due either.
+  // ---------------------------------------------------------------------------
+  it('does NOT post interest for a statement month whose statement day has not passed', () => {
+    const now = Date.parse('2026-06-10T00:00:00Z'); // card created mid-June
+    const [cardAcct] = db.insert(accounts).values({
+      name: 'Credit Card', type: 'card' as any, balance_cents: -740076,
+      credit_limit_cents: 798740, created_at: now, updated_at: now,
+    }).returning().all();
+    db.insert(debts).values({
+      name: 'Credit Card', type: 'revolving' as any, balance_cents: 740076,
+      rate_type: 'apr' as any, apr_bps: 1800, statement_day: 25, due_day: 15,
+      bt_status: 'none' as any, linked_account_id: cardAcct.id,
+      created_at: now, updated_at: now,
+    }).run();
+
+    const r = runPostRecurring('2026-06-20'); // before the 25th; card born this month
+    expect(r.interest).toBe(0); // nothing has passed yet
+    const interestRows = db.select().from(transactions).all().filter(t => t.category === 'interest');
+    expect(interestRows.length).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 16. Same-day behavior still works: running ON the statement day posts once.
+  // ---------------------------------------------------------------------------
+  it('still posts exactly once when run ON the statement day (legacy behavior intact)', () => {
+    const now = Date.parse('2026-06-01T00:00:00Z');
+    const [cardAcct] = db.insert(accounts).values({
+      name: 'Credit Card', type: 'card' as any, balance_cents: -740076,
+      credit_limit_cents: 798740, created_at: now, updated_at: now,
+    }).returning().all();
+    const [cardDebt] = db.insert(debts).values({
+      name: 'Credit Card', type: 'revolving' as any, balance_cents: 740076,
+      rate_type: 'apr' as any, apr_bps: 1800, statement_day: 15, due_day: 5,
+      bt_status: 'none' as any, linked_account_id: cardAcct.id,
+      created_at: now, updated_at: now,
+    }).returning().all();
+
+    const r = runPostRecurring('2026-06-15'); // exactly the statement day
+    expect(r.interest).toBe(1);
+    const interestRows = db.select().from(transactions).all().filter(t => t.category === 'interest');
+    expect(interestRows.length).toBe(1);
+    expect(interestRows[0].date).toBe('2026-06-15');
+    expect(interestRows[0].uuid).toBe(`interest-${cardDebt.id}-2026-06`);
   });
 });
