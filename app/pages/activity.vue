@@ -96,6 +96,33 @@ const userTransactions = computed(() =>
   transactions.value.filter(t => !SYSTEM_CATS.has(t.category))
 )
 
+// ── Search + category filter (client-side over the loaded month) ──────────
+// Find a past entry by NOTE text or category label (case-insensitive substring),
+// optionally narrowed to a single spend category. Combines additively.
+// Filtering an in-memory month is cheap, so it runs live on every keystroke via a
+// reactive computed — no debounce machinery (and no timer-flakiness) needed.
+const searchInput = ref('')       // bound live to the input
+const filterCategory = ref('all') // 'all' or a SPEND_CATEGORIES key
+
+// Reset the filter when the month changes so a stale query doesn't hide a new
+// month's rows.
+watch(monthISO, () => {
+  searchInput.value = ''
+  filterCategory.value = 'all'
+})
+
+const filteredTransactions = computed(() => {
+  const q = searchInput.value.trim().toLowerCase()
+  const cat = filterCategory.value
+  return userTransactions.value.filter(t => {
+    if (cat !== 'all' && t.category !== cat) return false
+    if (q === '') return true
+    const note = (t.note ?? '').toLowerCase()
+    const label = categoryLabel(t.category).toLowerCase()
+    return note.includes(q) || label.includes(q)
+  })
+})
+
 /** Format YYYY-MM-DD → "Monday, 19 Jun" */
 function formatDateHeader(dateISO: string): string {
   const [y, m, d] = dateISO.split('-').map(Number)
@@ -111,7 +138,7 @@ interface DateGroup {
 
 const grouped = computed((): DateGroup[] => {
   const map = new Map<string, Transaction[]>()
-  for (const t of userTransactions.value) {
+  for (const t of filteredTransactions.value) {
     const arr = map.get(t.date) ?? []
     arr.push(t)
     map.set(t.date, arr)
@@ -373,9 +400,9 @@ async function saveEdit() {
     <!-- ── Loading skeleton ───────────────────────────────────────────── -->
     <div v-if="loading" class="activity__skeleton" aria-label="Loading transactions…" />
 
-    <!-- ── Empty state ────────────────────────────────────────────────── -->
+    <!-- ── Empty state (month has no user spending at all) ─────────────── -->
     <div
-      v-else-if="!loading && userTransactions.length === 0"
+      v-else-if="userTransactions.length === 0"
       class="activity__empty"
       data-testid="empty-state"
     >
@@ -391,8 +418,77 @@ async function saveEdit() {
       <p class="activity__empty-hint">Use the <strong>+</strong> on Home to log your first transaction.</p>
     </div>
 
-    <!-- ── Grouped list ───────────────────────────────────────────────── -->
-    <div v-else class="activity__list" role="list">
+    <!-- ── Search + category filter (month has rows to find within) ────── -->
+    <template v-else>
+      <div class="activity__filters">
+        <div class="activity__search-wrap">
+          <span class="activity__search-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </span>
+          <label for="activity-search" class="visually-hidden">Search transactions by note or category</label>
+          <input
+            id="activity-search"
+            class="input activity__search"
+            type="search"
+            inputmode="search"
+            autocomplete="off"
+            placeholder="Search by note or category"
+            data-test="activity-search"
+            :value="searchInput"
+            @input="searchInput = ($event.target as HTMLInputElement).value"
+          />
+        </div>
+
+        <div
+          class="activity__chips"
+          role="group"
+          aria-label="Filter by category"
+          data-test="activity-filter"
+        >
+          <button
+            class="activity__chip"
+            :class="{ 'activity__chip--active': filterCategory === 'all' }"
+            :aria-pressed="filterCategory === 'all'"
+            data-test="activity-filter-all"
+            @click="filterCategory = 'all'"
+          >All</button>
+          <button
+            v-for="cat in SPEND_CATEGORIES"
+            :key="cat.key"
+            class="activity__chip"
+            :class="{ 'activity__chip--active': filterCategory === cat.key }"
+            :aria-pressed="filterCategory === cat.key"
+            :data-test="`activity-filter-${cat.key}`"
+            @click="filterCategory = cat.key"
+          >{{ cat.label }}</button>
+        </div>
+      </div>
+
+      <!-- ── No-match state (filter active, nothing matches) ───────────── -->
+      <div
+        v-if="grouped.length === 0"
+        class="activity__empty activity__empty--nomatch"
+        data-testid="nomatch-state"
+      >
+        <div class="activity__empty-icon" aria-hidden="true">
+          <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+            stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </div>
+        <p class="activity__empty-title">No matching entries</p>
+        <p class="activity__empty-hint">Try a different search term or category.</p>
+      </div>
+
+      <!-- ── Grouped list ─────────────────────────────────────────────── -->
+      <div v-else class="activity__list" role="list">
       <section
         v-for="group in grouped"
         :key="group.dateISO"
@@ -470,7 +566,8 @@ async function saveEdit() {
           </div>
         </div>
       </section>
-    </div>
+      </div>
+    </template>
 
     <!-- ── Undo toast ──────────────────────────────────────────────────── -->
     <div
@@ -691,6 +788,93 @@ async function saveEdit() {
   margin: 0;
   line-height: 1.5;
   max-width: 260px;
+}
+.activity__empty--nomatch {
+  padding: 40px 24px;
+}
+
+/* ── Visually-hidden (accessible label, off-screen) ───────────────────── */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Search + category filter ─────────────────────────────────────────── */
+.activity__filters {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.activity__search-wrap {
+  position: relative;
+}
+.activity__search-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.activity__search {
+  padding-left: 42px;
+}
+/* Hide the native clear control so the field reads on-design across browsers. */
+.activity__search::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.activity__chips {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.activity__chips::-webkit-scrollbar {
+  display: none;
+}
+
+.activity__chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-chip);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-family: var(--font-base);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: border-color 120ms ease-out, background 120ms ease-out, color 120ms ease-out;
+}
+.activity__chip--active {
+  border-color: var(--primary);
+  background: rgba(30, 64, 175, 0.08);
+  color: var(--primary);
+}
+.activity__chip:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 /* ── Group sections ───────────────────────────────────────────────────── */

@@ -703,6 +703,181 @@ describe('Activity page', () => {
     })
   })
 
+  // ── Search + category filter ──────────────────────────────────────────────────
+  // Client-side filter over the already-loaded month. Search matches note text +
+  // category label (case-insensitive substring); category chips narrow to one spend
+  // category; the two combine. No-match shows a DISTINCT empty state from the month's
+  // true-empty state, and edit/delete must still work on a filtered row.
+  describe('search + category filter', () => {
+    // A varied month: distinct notes + categories to filter against.
+    const searchSet = [
+      makeTxn({ id: 100, date: '2026-06-19', amount_cents: -1500, category: 'food', note: 'Lunch at OldTown' }),
+      makeTxn({ id: 101, date: '2026-06-18', amount_cents: -3000, category: 'transport', note: 'Grab to airport' }),
+      makeTxn({ id: 102, date: '2026-06-18', amount_cents: -8000, category: 'groceries', note: 'Weekly Tesco run' }),
+      makeTxn({ id: 103, date: '2026-06-17', amount_cents: -2200, category: 'food', note: 'Dinner with team' }),
+    ]
+    const mountSearch = () =>
+      mountActivity(async (url: string) => {
+        if (url.startsWith('/api/transactions')) return [...searchSet]
+        return []
+      })
+
+    it('renders the search input and category filter when the month has rows', async () => {
+      const w = mountSearch()
+      await flushPromises()
+      expect(w.find('[data-test="activity-search"]').exists()).toBe(true)
+      expect(w.find('[data-test="activity-filter"]').exists()).toBe(true)
+      // All 4 rows visible before any filter.
+      expect(w.findAll('[role="listitem"]').length).toBe(4)
+    })
+
+    it('typing a note substring filters to matching rows (case-insensitive)', async () => {
+      const w = mountSearch()
+      await flushPromises()
+
+      const search = w.find('[data-test="activity-search"]')
+      await search.setValue('tesco') // matches only "Weekly Tesco run"
+      await flushPromises()
+
+      const rows = w.findAll('[role="listitem"]')
+      expect(rows.length).toBe(1)
+      expect(w.text()).toContain('Weekly Tesco run')
+      expect(w.text()).not.toContain('Lunch at OldTown')
+    })
+
+    it('search also matches the category label (e.g. "transport")', async () => {
+      const w = mountSearch()
+      await flushPromises()
+
+      await w.find('[data-test="activity-search"]').setValue('Transport')
+      await flushPromises()
+
+      const rows = w.findAll('[role="listitem"]')
+      expect(rows.length).toBe(1)
+      expect(w.text()).toContain('Grab to airport')
+    })
+
+    it('selecting a category chip narrows to that category', async () => {
+      const w = mountSearch()
+      await flushPromises()
+
+      // 'food' chip → two food rows (id 100, 103)
+      await w.find('[data-test="activity-filter-food"]').trigger('click')
+      await flushPromises()
+
+      const rows = w.findAll('[role="listitem"]')
+      expect(rows.length).toBe(2)
+      expect(w.text()).toContain('Lunch at OldTown')
+      expect(w.text()).toContain('Dinner with team')
+      expect(w.text()).not.toContain('Grab to airport')
+    })
+
+    it('combines search + category (food + "dinner" → one row)', async () => {
+      const w = mountSearch()
+      await flushPromises()
+
+      await w.find('[data-test="activity-filter-food"]').trigger('click')
+      await w.find('[data-test="activity-search"]').setValue('dinner')
+      await flushPromises()
+
+      const rows = w.findAll('[role="listitem"]')
+      expect(rows.length).toBe(1)
+      expect(w.text()).toContain('Dinner with team')
+      expect(w.text()).not.toContain('Lunch at OldTown')
+    })
+
+    it('clearing the search restores all rows', async () => {
+      const w = mountSearch()
+      await flushPromises()
+
+      const search = w.find('[data-test="activity-search"]')
+      await search.setValue('tesco')
+      await flushPromises()
+      expect(w.findAll('[role="listitem"]').length).toBe(1)
+
+      await search.setValue('')
+      await flushPromises()
+      expect(w.findAll('[role="listitem"]').length).toBe(4)
+    })
+
+    it('no-match shows the DISTINCT no-match state, not the month true-empty state', async () => {
+      const w = mountSearch()
+      await flushPromises()
+
+      await w.find('[data-test="activity-search"]').setValue('zzz-no-such-entry')
+      await flushPromises()
+
+      // No-match state visible…
+      expect(w.find('[data-testid="nomatch-state"]').exists()).toBe(true)
+      expect(w.text()).toContain('No matching entries')
+      // …and it is NOT the month's true-empty state.
+      expect(w.find('[data-testid="empty-state"]').exists()).toBe(false)
+      expect(w.text()).not.toContain('No spending logged yet')
+      // The search input remains so the user can refine.
+      expect(w.find('[data-test="activity-search"]').exists()).toBe(true)
+    })
+
+    it('an empty month shows the true-empty state and NO search/filter controls', async () => {
+      const w = mountActivity(async () => [])
+      await flushPromises()
+      expect(w.find('[data-testid="empty-state"]').exists()).toBe(true)
+      expect(w.find('[data-testid="nomatch-state"]').exists()).toBe(false)
+      expect(w.find('[data-test="activity-search"]').exists()).toBe(false)
+    })
+
+    it('edit still works on a filtered row (PATCH fires)', async () => {
+      const patchResult = makeTxn({ id: 102, amount_cents: -9000, category: 'groceries', date: '2026-06-18' })
+      const w = mountActivity(async (url: string, opts?: any) => {
+        if (opts?.method === 'PATCH') return patchResult
+        if (url.startsWith('/api/transactions')) return [...searchSet]
+        return []
+      })
+      await flushPromises()
+
+      // Filter down to the single groceries row, then open + save it.
+      await w.find('[data-test="activity-search"]').setValue('tesco')
+      await flushPromises()
+      expect(w.findAll('[role="listitem"]').length).toBe(1)
+
+      await w.find('.list-row__main').trigger('click')
+      await w.vm.$nextTick()
+      expect(document.querySelector('[data-testid="edit-sheet"]')).not.toBeNull()
+
+      ;(document.querySelector('.edit-sheet__save') as HTMLElement).click()
+      await flushPromises()
+
+      const calls = (globalThis.$fetch as any).mock.calls
+      const patchCall = calls.find((c: any[]) => c[1]?.method === 'PATCH')
+      expect(patchCall).toBeTruthy()
+      expect(patchCall[0]).toMatch(/\/api\/transactions\/102/)
+
+      document.querySelectorAll('.edit-overlay').forEach(el => el.remove())
+    })
+
+    it('delete still works on a filtered row (DELETE fires + undo toast)', async () => {
+      const w = mountActivity(async (url: string, opts?: any) => {
+        if (opts?.method === 'DELETE') return { ok: true }
+        if (url.startsWith('/api/transactions')) return [...searchSet]
+        return []
+      })
+      await flushPromises()
+
+      await w.find('[data-test="activity-search"]').setValue('tesco')
+      await flushPromises()
+      const rows = w.findAll('[role="listitem"]')
+      expect(rows.length).toBe(1)
+
+      await w.find('.list-row__delete').trigger('click')
+      await flushPromises()
+
+      const calls = (globalThis.$fetch as any).mock.calls
+      const deleteCall = calls.find((c: any[]) => c[1]?.method === 'DELETE')
+      expect(deleteCall).toBeTruthy()
+      expect(deleteCall[0]).toMatch(/\/api\/transactions\/102/)
+      expect(w.find('[data-testid="undo-toast"]').exists()).toBe(true)
+    })
+  })
+
   // ── Month switcher ───────────────────────────────────────────────────────────
   describe('month switcher', () => {
     it('renders a month label in the header', async () => {
