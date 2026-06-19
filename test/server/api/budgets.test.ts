@@ -127,10 +127,14 @@ describe('budgets API — PUT upsert', () => {
 
 describe('budgets API — GET spent_cents', () => {
   it('reflects food expense transactions in current month', async () => {
-    // Insert a food expense via the transactions API
-    const now = new Date()
-    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    const date = `${month}-01`
+    // Insert a food expense via the transactions API.
+    // Use MYT (UTC+8) to match the production GET endpoint which uses todayMYT().slice(0,7).
+    const mytDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kuala_Lumpur',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date()) // returns YYYY-MM-DD
+    const [mytYear, mytMonth] = mytDate.split('-')
+    const date = `${mytYear}-${mytMonth}-15`
     await authFetch('/api/transactions', {
       method: 'POST',
       body: {
