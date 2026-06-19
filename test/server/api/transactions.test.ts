@@ -105,6 +105,102 @@ describe('transactions API — auth gating', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Monetary upper bound (§14 band) — over-ceiling amounts rejected with 400
+// ---------------------------------------------------------------------------
+
+describe('transactions API — monetary upper bound', () => {
+  const OVER = 10_000_000_001 // 1 sen over the RM1B ceiling
+
+  it('POST rejects an over-ceiling amount with 400', async () => {
+    await expect(authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'ceil-post-1', date: '2026-06-18', amount_cents: OVER, direction: 'income', category: 'income', account_id: bankId, source: 'manual' },
+    })).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('POST rejects an over-ceiling NEGATIVE amount with 400', async () => {
+    await expect(authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'ceil-post-2', date: '2026-06-18', amount_cents: -OVER, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' },
+    })).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('POST allows an amount exactly at the ceiling', async () => {
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'ceil-post-ok', date: '2026-06-18', amount_cents: 10_000_000_000, direction: 'income', category: 'income', account_id: bankId, source: 'manual' },
+    })
+    expect(typeof id).toBe('number')
+  })
+
+  it('PATCH rejects an over-ceiling amount with 400', async () => {
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'ceil-patch-1', date: '2026-06-18', amount_cents: -100, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' },
+    })
+    await expect(authFetch(`/api/transactions/${id}`, { method: 'PATCH', body: { amount_cents: -OVER, direction: 'expense' } }))
+      .rejects.toMatchObject({ statusCode: 400 })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Same-origin (CSRF) guard (§14 band) — live through the Nitro middleware
+// ---------------------------------------------------------------------------
+
+describe('transactions API — same-origin (CSRF) guard', () => {
+  it('blocks a state-changing POST carrying a cross-origin Origin (403)', async () => {
+    const cookie = await getSessionCookie()
+    const res = await nitroFetch('/api/transactions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie,
+        origin: 'https://evil.example.com',
+      },
+      body: JSON.stringify({ uuid: 'csrf-x', date: '2026-06-18', amount_cents: -100, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' }),
+    })
+    expect(res.status).toBe(403)
+  })
+
+  it('allows a same-origin POST (Origin host == server host)', async () => {
+    const cookie = await getSessionCookie()
+    // nitroFetch resolves against the live server's own base URL; derive its host for the Origin.
+    const probe = await nitroFetch('/api/accounts', { headers: { cookie } })
+    const serverOrigin = new URL(probe.url).origin
+    const res = await nitroFetch('/api/transactions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie,
+        origin: serverOrigin,
+      },
+      body: JSON.stringify({ uuid: 'csrf-same', date: '2026-06-18', amount_cents: -100, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' }),
+    })
+    expect(res.status).toBe(200)
+  })
+
+  it('CRITICAL: allows a state-changing POST with NO Origin header (test harness / same-origin)', async () => {
+    // The default authFetch/$fetch pattern sends no Origin — this is the case that must NOT break.
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'csrf-noorigin', date: '2026-06-18', amount_cents: -100, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' },
+    })
+    expect(typeof id).toBe('number')
+  })
+
+  it('exempts /api/auth/login from the cross-origin block', async () => {
+    // A cross-origin login attempt is still processed (returns 401 for bad creds, NOT 403).
+    const res = await nitroFetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', origin: 'https://evil.example.com' },
+      body: JSON.stringify({ username: 'nope', password: 'nope' }),
+    })
+    expect(res.status).not.toBe(403)
+    expect(res.status).toBe(401)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // POST — creates a transaction and applies balance
 // ---------------------------------------------------------------------------
 

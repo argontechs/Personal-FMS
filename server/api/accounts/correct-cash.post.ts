@@ -3,6 +3,7 @@ import { requireSession } from '../../utils/requireSession'
 import { db } from '../../db/index'
 import { accounts } from '../../db/schema'
 import { postTransaction } from '../../utils/post'
+import { withinAmountCeiling } from '../../utils/money'
 import { todayMYT } from '../../utils/mytDate'
 import { eq } from 'drizzle-orm'
 
@@ -16,6 +17,9 @@ export default defineEventHandler(async (event) => {
 
   if (!Number.isInteger(b.target_cents)) {
     throw createError({ statusCode: 400, statusMessage: 'target_cents must be an integer' })
+  }
+  if (!withinAmountCeiling(b.target_cents)) {
+    throw createError({ statusCode: 400, statusMessage: 'target_cents exceeds maximum' })
   }
 
   const acc = db.select().from(accounts).where(eq(accounts.id, b.account_id)).get()

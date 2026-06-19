@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto'
 import { requireSession } from '../../utils/requireSession'
 import { postEfTransfer } from '../../utils/efTransfer'
+import { withinAmountCeiling } from '../../utils/money'
 import { todayMYT } from '../../utils/mytDate'
 
 export default defineEventHandler(async (event) => {
@@ -19,6 +20,9 @@ export default defineEventHandler(async (event) => {
   }
   if (typeof body?.amount_cents !== 'number' || !Number.isInteger(body.amount_cents) || body.amount_cents <= 0) {
     throw createError({ statusCode: 400, statusMessage: 'amount_cents must be a positive integer' })
+  }
+  if (!withinAmountCeiling(body.amount_cents)) {
+    throw createError({ statusCode: 400, statusMessage: 'amount_cents exceeds maximum' })
   }
   if (body.goal_id !== undefined && (typeof body.goal_id !== 'number' || !Number.isInteger(body.goal_id) || body.goal_id <= 0)) {
     throw createError({ statusCode: 400, statusMessage: 'goal_id must be a positive integer' })

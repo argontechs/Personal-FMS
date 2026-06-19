@@ -10,7 +10,8 @@ import { nowEpoch } from './mytDate'
 const IS_PROD = process.env.NODE_ENV === 'production'
 
 export const SESSION_COOKIE = 'money_session'
-export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days (sliding window)
+export const SESSION_ABSOLUTE_MAX_MS = 90 * 24 * 60 * 60 * 1000 // 90 days (hard ceiling from creation)
 
 export type Session = {
   id: string
@@ -125,6 +126,10 @@ export function resolveSession(db: Db, id: string): Session | null {
   if (!row) return null
   const now = nowEpoch()
   if (row.expires_at <= now) return null
+  // Absolute cap — the sliding window slides expiry forward on every request, so a stolen
+  // cookie could otherwise live forever. Enforce a hard ceiling from creation: once a session
+  // is older than 90 days it is dead regardless of how recently it was used.
+  if (now > row.created_at + SESSION_ABSOLUTE_MAX_MS) return null
   // Epoch check — bulk invalidation when the user's session_epoch advances.
   const user = db.select().from(users).where(eq(users.id, row.user_id)).get()
   if (!user || user.session_epoch !== row.session_epoch) return null

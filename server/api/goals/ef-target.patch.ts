@@ -3,6 +3,7 @@
 import { requireSession } from '../../utils/requireSession'
 import { db } from '../../db/index'
 import { goals } from '../../db/schema'
+import { withinAmountCeiling } from '../../utils/money'
 import { eq } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
@@ -11,6 +12,9 @@ export default defineEventHandler(async (event) => {
 
   if (typeof b?.targetAmountCents !== 'number' || !Number.isInteger(b.targetAmountCents) || b.targetAmountCents <= 0) {
     throw createError({ statusCode: 400, statusMessage: 'targetAmountCents must be a positive integer' })
+  }
+  if (!withinAmountCeiling(b.targetAmountCents)) {
+    throw createError({ statusCode: 400, statusMessage: 'targetAmountCents exceeds maximum' })
   }
 
   const efGoal = db.select().from(goals).where(eq(goals.type, 'savings')).get()

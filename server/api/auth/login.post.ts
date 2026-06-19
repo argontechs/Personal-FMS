@@ -21,7 +21,12 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<{ username?: string; password?: string }>(event)
   const username = (body?.username ?? '').trim()
   const password = body?.password ?? ''
-  const ip = getRequestIP(event, { xForwardedFor: true }) ?? 'unknown'
+  // Per-IP backoff key MUST use the real socket peer, not X-Forwarded-For.
+  // getRequestIP({ xForwardedFor: true }) trusts the client-supplied XFF header, so an attacker
+  // can rotate it on every request and bypass the per-IP cap entirely. Behind the trusted proxy
+  // (nginx) the socket peer is the only value the client cannot forge. We pin to it; the per-IP
+  // cap is a coarse DoS guard, the per-account lock (recordFailure) is the real credential defence.
+  const ip = event.node.req.socket?.remoteAddress ?? 'unknown'
 
   if (!username || !password) {
     throw createError({ statusCode: 400, statusMessage: 'Missing credentials' })

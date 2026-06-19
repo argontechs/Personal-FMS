@@ -135,6 +135,28 @@ describe('session lifecycle', () => {
     handle.sqlite.prepare('UPDATE sessions SET expires_at = 1 WHERE id = ?').run(id)
     expect(resolveSession(handle.db, id)).toBeNull()
   })
+
+  it('rejects a session past the 90-day absolute cap even when sliding expiry is still in the future', () => {
+    const { id } = createSession(handle.db, userId, 0)
+    const now = Date.now()
+    // Created 91 days ago, but sliding expires_at is far in the future (as if used yesterday).
+    const created91dAgo = now - 91 * 24 * 60 * 60 * 1000
+    handle.sqlite
+      .prepare('UPDATE sessions SET created_at = ?, expires_at = ? WHERE id = ?')
+      .run(created91dAgo, now + 10 * 24 * 60 * 60 * 1000, id)
+    expect(resolveSession(handle.db, id)).toBeNull()
+  })
+
+  it('still resolves a session just under the 90-day cap', () => {
+    const { id } = createSession(handle.db, userId, 0)
+    const now = Date.now()
+    // Created 89 days ago — within the cap, sliding window healthy.
+    const created89dAgo = now - 89 * 24 * 60 * 60 * 1000
+    handle.sqlite
+      .prepare('UPDATE sessions SET created_at = ?, expires_at = ? WHERE id = ?')
+      .run(created89dAgo, now + 10 * 24 * 60 * 60 * 1000, id)
+    expect(resolveSession(handle.db, id)?.user_id).toBe(userId)
+  })
 })
 
 // ---------------------------------------------------------------------------

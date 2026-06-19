@@ -3,6 +3,7 @@ import { requireSession } from '../../utils/requireSession'
 import { postTransaction } from '../../utils/post'
 import { db } from '../../db/index'
 import { transactions } from '../../db/schema'
+import { withinAmountCeiling } from '../../utils/money'
 import { eq } from 'drizzle-orm'
 
 const VALID_CATEGORIES = ['food', 'transport', 'car', 'fuel', 'groceries', 'shopping', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'] as const
@@ -21,6 +22,9 @@ export default defineEventHandler(async (event) => {
   }
   if (typeof body.amount_cents !== 'number' || !Number.isInteger(body.amount_cents)) {
     throw createError({ statusCode: 400, statusMessage: 'amount_cents must be an integer' })
+  }
+  if (!withinAmountCeiling(body.amount_cents)) {
+    throw createError({ statusCode: 400, statusMessage: 'amount_cents exceeds maximum' })
   }
   if (!body?.account_id || typeof body.account_id !== 'number') {
     throw createError({ statusCode: 400, statusMessage: 'account_id required' })
