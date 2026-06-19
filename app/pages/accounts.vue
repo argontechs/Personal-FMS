@@ -3,10 +3,11 @@
      avalanche order (priority_rank) + Holdings/Investments + TRUE net worth summary at the top.
      Card account is shown under Debts only, never double-counted as an asset. -->
 <script setup lang="ts">
-import { computed, ref, nextTick } from 'vue'
+import { computed, ref } from 'vue'
 import { useFetch } from '#app'
 import { formatRM } from '../../shared/types'
 import DebtPlanPanel from '../components/debt/DebtPlanPanel.vue'
+import { useFocusTrap } from '~/composables/useFocusTrap'
 
 // Auth is enforced globally by app/middleware/auth.global.ts — no per-page middleware needed.
 
@@ -128,16 +129,17 @@ const formNote = ref('')
 const formSaving = ref(false)
 const formError = ref('')
 
-// a11y: autofocus the Name input on open + restore focus to the trigger on close.
+// a11y: focus-trap handles autofocus (Name input), Tab containment, Escape, and
+// restoring focus to the trigger on close.
 const nameInputRef = ref<HTMLInputElement | null>(null)
-const lastTrigger = ref<HTMLElement | null>(null)
+const sheetRef = ref<HTMLElement | null>(null)
+useFocusTrap({ active: sheetOpen, containerRef: sheetRef, onEscape: closeSheet, initialFocusRef: nameInputRef })
 
 // Delete confirm (edit mode only).
 const confirmingDelete = ref(false)
 const deleting = ref(false)
 
-function openEditSheet(h: any, ev?: Event) {
-  lastTrigger.value = (ev?.currentTarget as HTMLElement) ?? null
+function openEditSheet(h: any) {
   sheetMode.value = 'edit'
   sheetHolding.value = h
   formName.value = h.name
@@ -149,11 +151,10 @@ function openEditSheet(h: any, ev?: Event) {
   formError.value = ''
   confirmingDelete.value = false
   sheetOpen.value = true
-  nextTick(() => nameInputRef.value?.focus())
+  // Focus handled by useFocusTrap (initialFocusRef: nameInputRef).
 }
 
-function openAddSheet(ev?: Event) {
-  lastTrigger.value = (ev?.currentTarget as HTMLElement) ?? null
+function openAddSheet() {
   sheetMode.value = 'add'
   sheetHolding.value = null
   formName.value = ''
@@ -165,15 +166,13 @@ function openAddSheet(ev?: Event) {
   formError.value = ''
   confirmingDelete.value = false
   sheetOpen.value = true
-  nextTick(() => nameInputRef.value?.focus())
+  // Focus handled by useFocusTrap (initialFocusRef: nameInputRef).
 }
 
 function closeSheet() {
   sheetOpen.value = false
   confirmingDelete.value = false
-  // Restore focus to the element that opened the sheet.
-  const t = lastTrigger.value
-  if (t && typeof t.focus === 'function') nextTick(() => t.focus())
+  // Focus restoration to the trigger is handled by useFocusTrap.
 }
 
 function parseSen(rmStr: string): number | null {
@@ -412,7 +411,7 @@ async function retry() {
             type="button"
             class="accts-add-btn"
             aria-label="Add holding"
-            @click="openAddSheet($event)"
+            @click="openAddSheet()"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
               fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
@@ -466,7 +465,7 @@ async function retry() {
                   type="button"
                   class="accts-holding__edit-btn"
                   :aria-label="`Edit ${holding.name}`"
-                  @click="openEditSheet(holding, $event)"
+                  @click="openEditSheet(holding)"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -596,12 +595,12 @@ async function retry() {
     <!-- ── Edit / Add Holding Sheet ── -->
     <div
       v-if="sheetOpen"
+      ref="sheetRef"
       class="holding-sheet-backdrop"
       role="dialog"
       aria-modal="true"
       :aria-label="sheetMode === 'edit' ? 'Edit holding' : 'Add holding'"
       @click.self="closeSheet"
-      @keydown.esc="closeSheet"
     >
       <div class="holding-sheet">
         <div class="holding-sheet__header">

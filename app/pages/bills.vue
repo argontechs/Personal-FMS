@@ -2,11 +2,12 @@
 <!-- Bills & Subscriptions — lists, adds, edits, pauses/resumes, and deletes recurring items. -->
 <!-- Auth: global middleware (auth.global.ts) guards all pages; DO NOT add definePageMeta auth here. -->
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed } from 'vue'
 import { useFetch } from '#app'
 // Explicit import (not Nuxt auto-import) so the component resolves under the vitest harness too —
 // consistent with every other page; the build still statically inlines it.
 import RecurringRow from '~/components/RecurringRow.vue'
+import { useFocusTrap } from '~/composables/useFocusTrap'
 
 // ─── Constants (match server validation) ─────────────────────────────────────
 const VALID_CADENCES = ['monthly', 'weekly', 'biweekly', 'yearly'] as const
@@ -171,8 +172,10 @@ function todayISO(): string {
 // ─── Add sheet ────────────────────────────────────────────────────────────────
 const addOpen = ref(false)
 const addNameRef = ref<HTMLInputElement | null>(null)
+const addSheetRef = ref<HTMLElement | null>(null)
 const addError = ref('')
 const addSubmitting = ref(false)
+useFocusTrap({ active: addOpen, containerRef: addSheetRef, onEscape: closeAdd, initialFocusRef: addNameRef })
 
 // mode → auto_post: 'auto' = auto-deduct (logs a ledger txn), 'reminder' = reminder-only (user logs it).
 type PostMode = 'auto' | 'reminder'
@@ -208,7 +211,7 @@ function openAdd() {
   addError.value = ''
   addSubmitting.value = false
   addOpen.value = true
-  nextTick(() => addNameRef.value?.focus())
+  // Focus handled by useFocusTrap (initialFocusRef: addNameRef).
 }
 
 function closeAdd() {
@@ -254,9 +257,11 @@ async function submitAdd() {
 // ─── Edit sheet ───────────────────────────────────────────────────────────────
 const editOpen = ref(false)
 const editInputRef = ref<HTMLInputElement | null>(null)
+const editSheetRef = ref<HTMLElement | null>(null)
 const editError = ref('')
 const editSubmitting = ref(false)
 const editingId = ref<number | null>(null)
+useFocusTrap({ active: editOpen, containerRef: editSheetRef, onEscape: closeEdit, initialFocusRef: editInputRef })
 
 const editForm = ref({
   name: '',
@@ -288,7 +293,7 @@ function openEdit(item: RecurringItem) {
   editError.value = ''
   editSubmitting.value = false
   editOpen.value = true
-  nextTick(() => editInputRef.value?.focus())
+  // Focus handled by useFocusTrap (initialFocusRef: editInputRef).
 }
 
 function closeEdit() {
@@ -374,9 +379,11 @@ async function confirmDelete(id: number) {
 
 // ─── Flip off card ────────────────────────────────────────────────────────────
 const flipOpen = ref(false)
+const flipSheetRef = ref<HTMLElement | null>(null)
 const flipSubmitting = ref(false)
 const flipError = ref('')
 const flipResult = ref<{ flipped: number; paused: number } | null>(null)
+useFocusTrap({ active: flipOpen, containerRef: flipSheetRef, onEscape: closeFlip })
 
 function openFlip() {
   flipError.value = ''
@@ -609,12 +616,12 @@ async function submitFlip() {
     <Teleport to="body">
       <div
         v-if="addOpen"
+        ref="addSheetRef"
         class="sheet-overlay"
         role="dialog"
         aria-modal="true"
         aria-label="Add recurring item"
         @click.self="closeAdd"
-        @keydown.esc="closeAdd"
       >
         <div class="sheet">
           <div class="sheet__handle" aria-hidden="true" />
@@ -769,12 +776,12 @@ async function submitFlip() {
     <Teleport to="body">
       <div
         v-if="editOpen"
+        ref="editSheetRef"
         class="sheet-overlay"
         role="dialog"
         aria-modal="true"
         aria-label="Edit recurring item"
         @click.self="closeEdit"
-        @keydown.esc="closeEdit"
       >
         <div class="sheet">
           <div class="sheet__handle" aria-hidden="true" />
@@ -908,12 +915,12 @@ async function submitFlip() {
     <Teleport to="body">
       <div
         v-if="flipOpen"
+        ref="flipSheetRef"
         class="sheet-overlay"
         role="dialog"
         aria-modal="true"
         aria-label="Move recurring payments off credit card"
         @click.self="closeFlip"
-        @keydown.esc="closeFlip"
       >
         <div class="sheet">
           <div class="sheet__handle" aria-hidden="true" />

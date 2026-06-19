@@ -2,7 +2,7 @@
 <!-- §4 §5 §7: Dashboard — STS hero → QuickLog → Goals → Debt → Monthly rollup. -->
 <!-- Session-gated: all three endpoints return 401 if no valid session (requireSession in handlers). -->
 <script setup lang="ts">
-import { computed, ref, nextTick, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useFetch } from '#app'
 import SafeToSpendHero from '~/components/forecast/SafeToSpendHero.vue'
 import SurplusRollup from '~/components/forecast/SurplusRollup.vue'
@@ -12,6 +12,7 @@ import QuickLog from '~/components/quicklog/QuickLog.vue'
 import MoneyMoves from '~/components/forecast/MoneyMoves.vue'
 import { useSafeToSpend } from '~/composables/useSafeToSpend'
 import { usePush } from '~/composables/usePush'
+import { useFocusTrap } from '~/composables/useFocusTrap'
 import { navigateTo } from '#app'
 
 // All three fetches are online-first; Nuxt will throw on 401 → redirect handled by nuxtjs session
@@ -91,6 +92,8 @@ const sheetAmountRM = ref('')
 const sheetError = ref('')
 const sheetSubmitting = ref(false)
 const sheetInputRef = ref<HTMLInputElement | null>(null)
+const sheetRef = ref<HTMLElement | null>(null)
+useFocusTrap({ active: sheetOpen, containerRef: sheetRef, onEscape: closeSheet, initialFocusRef: sheetInputRef })
 
 // Suggested amount = per-cycle savings target remaining (NOT the full EF gap),
 // clamped to available cash. Never the whole EF gap.
@@ -108,7 +111,7 @@ function openSheet(prefillCents?: number) {
   sheetError.value = ''
   sheetSubmitting.value = false
   sheetOpen.value = true
-  nextTick(() => sheetInputRef.value?.focus())
+  // Focus handled by useFocusTrap (initialFocusRef: sheetInputRef).
 }
 
 function closeSheet() {
@@ -466,12 +469,12 @@ const showRemindersOn = computed(
     <Teleport to="body">
       <div
         v-if="sheetOpen"
+        ref="sheetRef"
         class="sheet-overlay"
         role="dialog"
         aria-modal="true"
         aria-label="Move money to emergency fund"
         @click.self="closeSheet"
-        @keydown.esc="closeSheet"
       >
         <div class="sheet">
           <div class="sheet__handle" aria-hidden="true" />

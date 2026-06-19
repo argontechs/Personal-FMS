@@ -3,10 +3,11 @@
      edit (bottom sheet), delete+undo, empty state, system-row filter.
 -->
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch } from 'vue'
 import CategoryIcon from '~/components/CategoryIcon.vue'
 import { SPEND_CATEGORIES } from '../../shared/categories'
 import { isEditableTxn } from '../../shared/txnEditable'
+import { useFocusTrap } from '~/composables/useFocusTrap'
 
 // ── Transaction shape from GET /api/transactions ──────────────────────────
 interface Transaction {
@@ -273,6 +274,9 @@ async function handleUndo() {
 // ── Edit sheet ────────────────────────────────────────────────────────────
 const editSheet = ref(false)
 const editTarget = ref<Transaction | null>(null)
+const editSheetRef = ref<HTMLElement | null>(null)
+const editAmountRef = ref<HTMLInputElement | null>(null)
+useFocusTrap({ active: editSheet, containerRef: editSheetRef, onEscape: closeEdit, initialFocusRef: editAmountRef })
 
 // Form fields
 const editAmountRm = ref('')
@@ -301,9 +305,7 @@ function openEdit(txn: Transaction) {
   editDate.value = txn.date
   editErrors.value = {}
   editSheet.value = true
-  nextTick(() => {
-    ;(document.querySelector('.edit-sheet__amount') as HTMLElement)?.focus()
-  })
+  // Focus handled by useFocusTrap (initialFocusRef: editAmountRef).
 }
 
 function closeEdit() {
@@ -590,6 +592,7 @@ async function saveEdit() {
     <Teleport to="body">
       <div
         v-if="editSheet"
+        ref="editSheetRef"
         class="edit-overlay"
         role="dialog"
         aria-modal="true"
@@ -608,6 +611,7 @@ async function saveEdit() {
               <span class="edit-sheet__prefix" aria-hidden="true">RM</span>
               <input
                 id="edit-amount"
+                ref="editAmountRef"
                 class="input edit-sheet__amount"
                 type="number"
                 inputmode="decimal"
