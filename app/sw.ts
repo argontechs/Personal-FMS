@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { precacheAndRoute } from 'workbox-precaching'
-import { registerRoute } from 'workbox-routing'
+import { registerRoute, NavigationRoute } from 'workbox-routing'
 import { NetworkFirst } from 'workbox-strategies'
 import { ExpirationPlugin } from 'workbox-expiration'
 import { CacheableResponsePlugin } from 'workbox-cacheable-response'
@@ -31,6 +31,28 @@ export function isCacheableApiGet(pathname: string, method: string): boolean {
   if (pathname.startsWith('/api/internal/')) return false
   return true
 }
+
+// ---------------------------------------------------------------------------
+// Navigation / app-shell cache: NetworkFirst for document requests.
+// Online → always fetches fresh HTML (and updates the cache as a side effect).
+// Offline / network timeout → serves the cached app shell so the SPA can boot.
+// Only /api requests are excluded — those are handled by the read-cache route.
+// ---------------------------------------------------------------------------
+registerRoute(
+  new NavigationRoute(
+    new NetworkFirst({
+      cacheName: 'fms-app-shell',
+      networkTimeoutSeconds: 3,
+      plugins: [
+        new CacheableResponsePlugin({ statuses: [200] }),
+      ],
+    }),
+    {
+      // Exclude /api/** from NavigationRoute so API requests are not captured.
+      denylist: [/^\/api\//],
+    },
+  ),
+)
 
 // ---------------------------------------------------------------------------
 // Runtime read-cache: NetworkFirst for GET /api reads.

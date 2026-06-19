@@ -32,9 +32,16 @@ function makeFetchError(status: number) {
   return err
 }
 
+function makeNetworkError() {
+  // Simulates a network failure: no .response, no .status, no .statusCode
+  return new Error('Network request failed')
+}
+
 beforeEach(() => {
   vi.resetAllMocks()
   vi.stubGlobal('$fetch', vi.fn())
+  // Default to online; individual tests can override via vi.stubGlobal('navigator', ...)
+  vi.stubGlobal('navigator', { onLine: true })
 })
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -60,6 +67,26 @@ describe('auth.global middleware', () => {
   it('unauthenticated user going to /login is allowed (no redirect)', async () => {
     vi.stubGlobal('$fetch', vi.fn().mockRejectedValue(makeFetchError(401)))
     await (authMiddleware as any)(makeRoute('/login'), makeRoute('/'))
+    expect(nuxtApp.navigateTo).not.toHaveBeenCalled()
+  })
+
+  it('real 403 → redirects to /login', async () => {
+    vi.stubGlobal('$fetch', vi.fn().mockRejectedValue(makeFetchError(403)))
+    await (authMiddleware as any)(makeRoute('/dashboard'), makeRoute('/'))
+    expect(nuxtApp.navigateTo).toHaveBeenCalledWith('/login')
+  })
+
+  it('network error (no HTTP response) → does NOT redirect, lets navigation proceed', async () => {
+    vi.stubGlobal('$fetch', vi.fn().mockRejectedValue(makeNetworkError()))
+    await (authMiddleware as any)(makeRoute('/'), makeRoute('/'))
+    expect(nuxtApp.navigateTo).not.toHaveBeenCalled()
+  })
+
+  it('navigator.onLine === false → does NOT redirect, lets navigation proceed', async () => {
+    vi.stubGlobal('navigator', { onLine: false })
+    // Even a 401-shaped error is ignored when offline (network layer can produce these)
+    vi.stubGlobal('$fetch', vi.fn().mockRejectedValue(makeFetchError(401)))
+    await (authMiddleware as any)(makeRoute('/'), makeRoute('/'))
     expect(nuxtApp.navigateTo).not.toHaveBeenCalled()
   })
 })
