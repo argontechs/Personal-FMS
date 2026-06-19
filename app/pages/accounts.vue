@@ -6,6 +6,7 @@
 import { computed, ref, nextTick } from 'vue'
 import { useFetch } from '#app'
 import { formatRM } from '../../shared/types'
+import DebtPlanPanel from '../components/debt/DebtPlanPanel.vue'
 
 // Auth is enforced globally by app/middleware/auth.global.ts — no per-page middleware needed.
 
@@ -18,6 +19,10 @@ const { data: allDebts, error: debtsError, refresh: refreshDebts } =
 
 const { data: holdingsData, error: holdingsError, refresh: refreshHoldings } =
   await useFetch('/api/holdings')
+
+// Cross-debt avalanche payoff plan (read-only projection: debt-free date + payoff order).
+const { data: debtPlan, refresh: refreshDebtPlan } =
+  await useFetch('/api/debt-plan')
 
 // ── Derived values ────────────────────────────────────────────────────────────
 
@@ -247,7 +252,7 @@ const isLoading = computed(() => accounts.value === null && !accountsError.value
 const hasError = computed(() => !!(accountsError.value || debtsError.value || holdingsError.value))
 
 async function retry() {
-  await Promise.all([refreshAccounts(), refreshDebts(), refreshHoldings()])
+  await Promise.all([refreshAccounts(), refreshDebts(), refreshHoldings(), refreshDebtPlan()])
 }
 </script>
 
@@ -569,8 +574,14 @@ async function retry() {
           </ul>
         </div>
 
+        <!-- Cross-debt avalanche payoff plan — debt-free date + payoff order (read-only) -->
+        <DebtPlanPanel
+          v-if="debtPlan && allDebts && (allDebts as any[]).length"
+          :plan="(debtPlan as any)"
+        />
+
         <!-- Empty state for debts -->
-        <div v-else class="accts-empty">
+        <div v-if="!(allDebts && (allDebts as any[]).length)" class="accts-empty">
           <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
             stroke-linejoin="round" aria-hidden="true" style="color:var(--text-muted)">
