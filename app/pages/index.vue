@@ -60,8 +60,9 @@ const efAccountId = computed(() => {
 const bankAccountId = computed(() => {
   if (!accounts.value) return null
   const arr = Array.isArray(accounts.value) ? accounts.value : []
-  // Primary bank: type === 'checking', or fall back to first non-savings account
-  const bank = arr.find((a: any) => a.type === 'checking') ?? arr.find((a: any) => a.type !== 'savings')
+  // Primary funding bank for EF transfers = the first 'bank'-type account (Main Bank).
+  // Must be a real spendable bank — never the card/savings/ewallet/cash.
+  const bank = arr.find((a: any) => a.type === 'bank')
   return bank?.id ?? null
 })
 
