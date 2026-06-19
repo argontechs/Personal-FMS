@@ -12,7 +12,7 @@ import RecurringRow from '~/components/RecurringRow.vue'
 const VALID_CADENCES = ['monthly', 'weekly', 'biweekly', 'yearly'] as const
 type Cadence = typeof VALID_CADENCES[number]
 
-const VALID_CATEGORIES = ['food', 'transport', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'] as const
+const VALID_CATEGORIES = ['food', 'transport', 'car', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'] as const
 type Category = typeof VALID_CATEGORIES[number]
 
 const VALID_DIRECTIONS = ['income', 'expense'] as const

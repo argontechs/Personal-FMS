@@ -5,7 +5,7 @@ import { db } from '../../db/index'
 import { transactions } from '../../db/schema'
 import { eq } from 'drizzle-orm'
 
-const VALID_CATEGORIES = ['food', 'transport', 'fuel', 'groceries', 'shopping', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'] as const
+const VALID_CATEGORIES = ['food', 'transport', 'car', 'fuel', 'groceries', 'shopping', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'] as const
 const VALID_DIRECTIONS = ['income', 'expense', 'transfer'] as const
 const VALID_SOURCES = ['auto', 'manual', 'adjustment'] as const
 

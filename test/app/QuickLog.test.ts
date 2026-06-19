@@ -78,18 +78,62 @@ describe('QuickLog', () => {
     expect(input.value).toBe('');
   });
 
-  it('renders all 7 category chips in expense mode', () => {
+  it('renders all 8 category chips in expense mode (including Car)', () => {
     const wrapper = mount(QuickLog, { props: { accountId: 1, defaultDate: '2026-06-18' } });
     const chips = wrapper.findAll('[data-test^="cat-"]');
-    expect(chips.length).toBe(7);
+    expect(chips.length).toBe(8);
     const keys = chips.map(c => c.attributes('data-test'));
     expect(keys).toContain('cat-food');
     expect(keys).toContain('cat-transport');
+    expect(keys).toContain('cat-car');
     expect(keys).toContain('cat-fuel');
     expect(keys).toContain('cat-groceries');
     expect(keys).toContain('cat-shopping');
     expect(keys).toContain('cat-bills');
     expect(keys).toContain('cat-other');
+  });
+
+  it("'car' chip enqueues with category='car'", async () => {
+    const wrapper = mount(QuickLog, { props: { accountId: 1, defaultDate: '2026-06-18' } });
+    await wrapper.find('[data-test="amount"]').setValue('8.50');
+    await wrapper.find('[data-test="cat-car"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(enqueued.length).toBe(1);
+    expect(enqueued[0].category).toBe('car');
+    expect(enqueued[0].amount_cents).toBe(-850);
+    expect(enqueued[0].direction).toBe('expense');
+  });
+
+  it('logs a remark into note when remark input is filled', async () => {
+    const wrapper = mount(QuickLog, { props: { accountId: 1, defaultDate: '2026-06-18' } });
+    await wrapper.find('[data-test="amount"]').setValue('5.50');
+    await wrapper.find('[data-test="remark"]').setValue('lunch with team');
+    await wrapper.find('[data-test="cat-food"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(enqueued.length).toBe(1);
+    expect(enqueued[0].note).toBe('lunch with team');
+    expect(enqueued[0].category).toBe('food');
+  });
+
+  it('logs with no note when remark is empty', async () => {
+    const wrapper = mount(QuickLog, { props: { accountId: 1, defaultDate: '2026-06-18' } });
+    await wrapper.find('[data-test="amount"]').setValue('3.00');
+    // leave remark blank
+    await wrapper.find('[data-test="cat-food"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(enqueued.length).toBe(1);
+    // note should be undefined (falsy trimmed empty string)
+    expect(enqueued[0].note == null || enqueued[0].note === undefined).toBe(true);
+  });
+
+  it('clears remark after logging', async () => {
+    const wrapper = mount(QuickLog, { props: { accountId: 1, defaultDate: '2026-06-18' } });
+    await wrapper.find('[data-test="amount"]').setValue('5.00');
+    await wrapper.find('[data-test="remark"]').setValue('quick lunch');
+    await wrapper.find('[data-test="cat-food"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    const remarkInput = wrapper.find('[data-test="remark"]').element as HTMLInputElement;
+    expect(remarkInput.value).toBe('');
   });
 
   it("'fuel' chip enqueues with category='fuel'", async () => {

@@ -48,5 +48,6 @@ export default defineEventHandler((event) => {
     cashNowCents: cashNowCents(db),
     todayISO,
     deltaCashThisMonthCents,
+    savingsTargetRemainingCents: savingsTargetRemainingCentsValue,
   }
 })

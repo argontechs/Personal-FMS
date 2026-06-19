@@ -4,13 +4,13 @@ import { describe, it, expect } from 'vitest'
 import { SPEND_CATEGORIES, categoryIcon } from '../../../shared/categories'
 
 describe('SPEND_CATEGORIES registry', () => {
-  it('has exactly 7 spend categories', () => {
-    expect(SPEND_CATEGORIES.length).toBe(7)
+  it('has exactly 8 spend categories', () => {
+    expect(SPEND_CATEGORIES.length).toBe(8)
   })
 
   it('contains all expected category keys in order', () => {
     const keys = SPEND_CATEGORIES.map(c => c.key)
-    expect(keys).toEqual(['food', 'transport', 'fuel', 'groceries', 'shopping', 'bills', 'other'])
+    expect(keys).toEqual(['food', 'transport', 'car', 'fuel', 'groceries', 'shopping', 'bills', 'other'])
   })
 
   it('all categories have isLiving=true', () => {
@@ -29,6 +29,7 @@ describe('SPEND_CATEGORIES registry', () => {
   it('categoryIcon returns correct icon for known keys', () => {
     expect(categoryIcon('food')).toBe('utensils')
     expect(categoryIcon('transport')).toBe('bus')
+    expect(categoryIcon('car')).toBe('car')
     expect(categoryIcon('fuel')).toBe('fuel')
     expect(categoryIcon('groceries')).toBe('shopping-basket')
     expect(categoryIcon('shopping')).toBe('shopping-bag')

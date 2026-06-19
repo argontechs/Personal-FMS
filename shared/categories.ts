@@ -11,6 +11,7 @@ export interface SpendCategory {
 export const SPEND_CATEGORIES: SpendCategory[] = [
   { key: 'food',      label: 'Food',      icon: 'utensils',           isLiving: true },
   { key: 'transport', label: 'Transport', icon: 'bus',                isLiving: true },
+  { key: 'car',       label: 'Car',       icon: 'car',                isLiving: true },
   { key: 'fuel',      label: 'Fuel',      icon: 'fuel',               isLiving: true },
   { key: 'groceries', label: 'Groceries', icon: 'shopping-basket',    isLiving: true },
   { key: 'shopping',  label: 'Shopping',  icon: 'shopping-bag',       isLiving: true },

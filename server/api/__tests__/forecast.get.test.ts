@@ -48,6 +48,8 @@ describe('GET /api/forecast', () => {
     expect(res.rollup.surplusAfterInterestCents).toBe(356589)
     expect(res.cashNowCents).toBe(80000)
     expect(res.todayISO).toBe('2026-06-18')
+    // savingsTargetRemainingCents must be exposed so the dashboard can use it for the payday prompt
+    expect(res.savingsTargetRemainingCents).toBe(30000)
   })
 
   it('honors a caller-supplied savingsTargetRemaining override', async () => {

@@ -156,6 +156,60 @@ describe('Activity page', () => {
     })
   })
 
+  // ── Category label casing ────────────────────────────────────────────────────
+  describe('category labels', () => {
+    it("income row shows 'Income' (capitalised) not the raw key 'income'", async () => {
+      const incomeTxn = makeTxn({
+        id: 30,
+        date: '2026-06-19',
+        amount_cents: 500000,
+        direction: 'income',
+        category: 'income',
+        note: null,
+      })
+      const w = mountActivity(async (url: string) => {
+        if (url.startsWith('/api/transactions')) return [incomeTxn]
+        return []
+      })
+      await flushPromises()
+
+      const rows = w.findAll('.list-row__name')
+      expect(rows.length).toBe(1)
+      expect(rows[0].text()).toBe('Income')
+      // Must NOT show the raw lowercase key
+      expect(w.html()).not.toContain('>income<')
+    })
+
+    it('note is shown as subtitle when present on any row type', async () => {
+      const incomeTxn = makeTxn({
+        id: 31,
+        date: '2026-06-19',
+        amount_cents: 230000,
+        direction: 'income',
+        category: 'income',
+        note: 'Salary June',
+      })
+      const w = mountActivity(async (url: string) => {
+        if (url.startsWith('/api/transactions')) return [incomeTxn]
+        return []
+      })
+      await flushPromises()
+      expect(w.text()).toContain('Salary June')
+      expect(w.find('.list-row__note').exists()).toBe(true)
+    })
+
+    it('does NOT show an empty subtitle when note is null', async () => {
+      const txn = makeTxn({ id: 32, date: '2026-06-19', amount_cents: -500, category: 'food', note: null })
+      const w = mountActivity(async (url: string) => {
+        if (url.startsWith('/api/transactions')) return [txn]
+        return []
+      })
+      await flushPromises()
+      // note span should not exist
+      expect(w.find('.list-row__note').exists()).toBe(false)
+    })
+  })
+
   // ── System-row filtering ─────────────────────────────────────────────────────
   describe('system-row filter', () => {
     it('hides rows with system categories (adjustment, transfer)', async () => {

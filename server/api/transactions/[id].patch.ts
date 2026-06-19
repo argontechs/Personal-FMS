@@ -5,7 +5,7 @@ import { transactions } from '../../db/schema'
 import { recomputeBalances } from '../../utils/post'
 import { eq } from 'drizzle-orm'
 
-const VALID_CATEGORIES = ['food', 'transport', 'fuel', 'groceries', 'shopping', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'] as const
+const VALID_CATEGORIES = ['food', 'transport', 'car', 'fuel', 'groceries', 'shopping', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'] as const
 
 export default defineEventHandler(async (event) => {
   requireSession(event)

@@ -83,18 +83,27 @@ describe('computeMonthlyRollup — living categories', () => {
     expect(result.livingCents).toBe(5000)
   })
 
-  it('counts all 7 spend categories in living when mixed', () => {
+  it('counts car expenses as living cost', () => {
+    const acc = freshAccount()
+    insertIncome(acc, 500000)
+    insertExpense(acc, 'car', 3500) // parking + tolls
+    const result = computeMonthlyRollup(db, '2026-06')
+    expect(result.livingCents).toBe(3500)
+  })
+
+  it('counts all 8 spend categories in living when mixed', () => {
     const acc = freshAccount()
     insertIncome(acc, 1000000)
     insertExpense(acc, 'food', 1000)
     insertExpense(acc, 'transport', 1000)
+    insertExpense(acc, 'car', 1000)
     insertExpense(acc, 'fuel', 1000)
     insertExpense(acc, 'groceries', 1000)
     insertExpense(acc, 'shopping', 1000)
     insertExpense(acc, 'bills', 1000)
     insertExpense(acc, 'other', 1000)
     const result = computeMonthlyRollup(db, '2026-06')
-    expect(result.livingCents).toBe(7000)
+    expect(result.livingCents).toBe(8000)
   })
 
   it('does NOT count debt or interest as living', () => {

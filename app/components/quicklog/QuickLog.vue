@@ -14,6 +14,7 @@ interface Account {
 
 const { enqueue } = useOfflineQueue();
 const amount = ref('');
+const remark = ref('');
 const busy = ref(false);
 
 // ── Mode toggle ───────────────────────────────────────────────────────────────
@@ -60,7 +61,7 @@ function ringgitToSen(rm: number): number {
   return Math.round(rm * 100);
 }
 
-type SpendCategory = 'food' | 'transport' | 'fuel' | 'groceries' | 'shopping' | 'bills' | 'other';
+type SpendCategory = 'food' | 'transport' | 'car' | 'fuel' | 'groceries' | 'shopping' | 'bills' | 'other';
 
 async function log(category: SpendCategory) {
   const rm = parseFloat(amount.value);
@@ -73,9 +74,11 @@ async function log(category: SpendCategory) {
       direction: 'expense',
       category,
       account_id: props.accountId,
+      note: remark.value.trim() || undefined,
     });
     emit('logged', txn);
     amount.value = '';
+    remark.value = '';
   } finally {
     busy.value = false;
   }
@@ -105,6 +108,7 @@ async function logIncome() {
 function setMode(m: Mode) {
   mode.value = m;
   amount.value = '';
+  remark.value = '';
   selectedSource.value = null;
 }
 </script>
@@ -154,6 +158,17 @@ function setMode(m: Mode) {
 
     <!-- ── EXPENSE mode: category chips ────────────────────────────────── -->
     <template v-if="mode === 'expense'">
+      <!-- Optional remark (persisted as transaction note) -->
+      <input
+        data-test="remark"
+        v-model="remark"
+        type="text"
+        class="quicklog__remark"
+        placeholder="Remark (optional)"
+        aria-label="Optional remark"
+        maxlength="120"
+      />
+
       <div class="chips" role="group" aria-label="Expense category">
 
         <!-- Food — utensils -->
@@ -182,6 +197,19 @@ function setMode(m: Mode) {
             <circle cx="16" cy="18" r="2"/>
           </svg>
           Transport
+        </button>
+
+        <!-- Car — parking, tolls -->
+        <button data-test="cat-car" type="button" :disabled="busy" class="chip" @click="log('car')">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/>
+            <rect x="9" y="11" width="14" height="10" rx="2"/>
+            <circle cx="12" cy="16" r="1"/>
+            <circle cx="20" cy="16" r="1"/>
+          </svg>
+          Car
         </button>
 
         <!-- Fuel — fuel -->
@@ -396,6 +424,29 @@ function setMode(m: Mode) {
 .quicklog__amount::placeholder {
   color: var(--border);
   font-weight: 400;
+}
+
+/* ── Remark input ────────────────────────────────────────────────────────── */
+.quicklog__remark {
+  height: 44px;
+  padding: 0 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-input);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-base);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 150ms ease-out;
+}
+
+.quicklog__remark::placeholder {
+  color: var(--text-muted);
+}
+
+.quicklog__remark:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px rgba(30,64,175,.12);
 }
 
 /* ── Category chips ──────────────────────────────────────────────────────── */

@@ -17,6 +17,7 @@ const mockForecast = {
   cashNowCents: 100000,
   todayISO: '2026-06-18',
   deltaCashThisMonthCents: 0, // 0 → leak flag fires (rawSurplus > 0, deltaCash ≤ 0)
+  savingsTargetRemainingCents: 55000, // per-cycle target (RM550), well under cashNow (RM1000)
 }
 
 const mockDebt = {
@@ -444,6 +445,50 @@ describe('Payday prompt', () => {
     await adjustBtn.trigger('click')
     await flushPromises()
     expect(findSheet()).not.toBeNull()
+  })
+
+  it('suggested amount is the per-cycle savingsTargetRemainingCents (NOT the full EF gap)', async () => {
+    // cashNow=100000, savingsTargetRemainingCents=55000 → clamped = 55000
+    // Old (wrong) behaviour: targetCents(100000) - currentCents(45000) = 55000 would coincidentally match
+    // but we verify it's capped by cashNow, not computed from EF gap.
+    // Use a large EF gap + small savingsTarget to distinguish them.
+    activeForecast = {
+      ...mockForecast,
+      cashNowCents: 100000,
+      savingsTargetRemainingCents: 16667, // RM166.67 per-cycle target
+    }
+    // Keep EF progress < 1 so prompt shows
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[data-test="payday-prompt"]').exists()).toBe(true)
+    // Should show per-cycle target (16667 sen = RM166.67), NOT the full EF gap (55000 sen)
+    expect(w.text()).toContain('RM166.67')
+    expect(w.text()).not.toContain('RM550.00')
+  })
+
+  it('suggested amount is clamped to cashNow when per-cycle target exceeds cash', async () => {
+    activeForecast = {
+      ...mockForecast,
+      cashNowCents: 5000,          // RM50 available
+      savingsTargetRemainingCents: 16667, // RM166.67 per-cycle — exceeds cash
+    }
+    const w = mountDashboard()
+    await flushPromises()
+    // Still shows (savingsTarget clamped to cashNow > 0)
+    expect(w.find('[data-test="payday-prompt"]').exists()).toBe(true)
+    // Clamped to RM50.00 (cashNow)
+    expect(w.text()).toContain('RM50.00')
+  })
+
+  it('hides the payday prompt when suggested amount is 0 (nothing to move)', async () => {
+    activeForecast = {
+      ...mockForecast,
+      cashNowCents: 0, // no cash — min(0, perCycleTarget) = 0
+      savingsTargetRemainingCents: 16667,
+    }
+    const w = mountDashboard()
+    await flushPromises()
+    expect(w.find('[data-test="payday-prompt"]').exists()).toBe(false)
   })
 
   it('payday prompt hides after a successful transfer via Move-to-EF button', async () => {

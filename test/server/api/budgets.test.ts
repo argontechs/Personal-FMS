@@ -85,14 +85,16 @@ describe('budgets API — auth gating', () => {
 // ── GET returns 7 rows, all null/0 on empty DB ─────────────────────────────
 
 describe('budgets API — GET empty state', () => {
-  it('returns array of 7 rows, all limit_cents: null, all spent_cents: 0', async () => {
+  it('returns array of 8 rows (all spend categories incl. car), all limit_cents: null, all spent_cents: 0', async () => {
     const rows = await authFetch('/api/budgets')
     expect(Array.isArray(rows)).toBe(true)
-    expect(rows.length).toBe(7)
+    expect(rows.length).toBe(8)
     for (const r of rows) {
       expect(r.limit_cents).toBeNull()
       expect(r.spent_cents).toBe(0)
     }
+    // 'car' category must appear as a budget row
+    expect(rows.some((r: any) => r.category === 'car')).toBe(true)
   })
 })
 

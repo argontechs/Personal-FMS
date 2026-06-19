@@ -125,8 +125,19 @@ const grouped = computed((): DateGroup[] => {
 })
 
 // ── Category label lookup ─────────────────────────────────────────────────
+// System categories (income, transfer) aren't in SPEND_CATEGORIES so map them explicitly.
+const SYSTEM_LABELS: Record<string, string> = {
+  income: 'Income',
+  transfer: 'Transfer',
+  savings: 'Savings',
+  debt: 'Debt',
+  interest: 'Interest',
+  adjustment: 'Adjustment',
+  'opening-balance': 'Opening Balance',
+}
+
 function categoryLabel(key: string): string {
-  return SPEND_CATEGORIES.find(c => c.key === key)?.label ?? key
+  return SPEND_CATEGORIES.find(c => c.key === key)?.label ?? SYSTEM_LABELS[key] ?? key
 }
 
 // ── Amount formatting ─────────────────────────────────────────────────────

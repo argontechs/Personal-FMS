@@ -92,11 +92,12 @@ const sheetError = ref('')
 const sheetSubmitting = ref(false)
 const sheetInputRef = ref<HTMLInputElement | null>(null)
 
-// Suggested amount = remaining-to-target for this cycle.
+// Suggested amount = per-cycle savings target remaining (NOT the full EF gap),
+// clamped to available cash. Never the whole EF gap.
 const suggestedSavingsCents = computed(() => {
-  if (!goals.value?.ef) return 0
-  const remaining = goals.value.ef.targetCents - goals.value.ef.currentCents
-  return Math.max(0, remaining)
+  const perCycleTarget = forecast.value?.savingsTargetRemainingCents ?? 0
+  const cashAvail = forecast.value?.cashNowCents ?? 0
+  return Math.max(0, Math.min(perCycleTarget, cashAvail))
 })
 
 const availableCashCents = computed(() => forecast.value?.cashNowCents ?? 0)
@@ -162,12 +163,12 @@ const paydaySkipped = ref(false)
 
 // Income landed = rollup.incomeCents > 0 this cycle.
 // Savings target not met = EF progress < 1.
-// Show prompt when both are true and not skipped/moved.
+// Hide when suggestedSavingsCents === 0 (nothing sensible to move — over-committed or no cycle target).
 const showPaydayPrompt = computed(() => {
   if (paydaySkipped.value) return false
   const income = forecast.value?.rollup?.incomeCents ?? 0
   const efProgress = goals.value?.ef?.progress ?? 1
-  return income > 0 && efProgress < 1
+  return income > 0 && efProgress < 1 && suggestedSavingsCents.value > 0
 })
 
 const paydayIncomeCents = computed(() => forecast.value?.rollup?.incomeCents ?? 0)
