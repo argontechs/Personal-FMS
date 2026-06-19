@@ -1,5 +1,5 @@
 <!-- app/layouts/default.vue
-     Default authenticated layout: top header (app name + logout) + page slot + bottom nav.
+     Default authenticated layout: top header (app name + settings + logout) + page slot + bottom nav.
      Login page bypasses this layout entirely (uses definePageMeta({ layout: false })). -->
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
@@ -10,6 +10,10 @@ import { deadLetterCount, useOfflineQueue } from '~/composables/useOfflineQueue'
 async function handleLogout() {
   await $fetch('/api/auth/logout', { method: 'POST' })
   await navigateTo('/login')
+}
+
+function handleSettings() {
+  navigateTo('/settings')
 }
 
 // ── Offline indicator ────────────────────────────────────────────────────────
@@ -65,22 +69,40 @@ async function discardDeadLetters() {
     <!-- Top header -->
     <header class="app-header">
       <span class="app-header__name">Personal FMS</span>
-      <button
-        class="app-header__logout"
-        type="button"
-        aria-label="Log out"
-        @click="handleLogout"
-      >
-        <!-- log-out icon -->
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-          fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
-          stroke-linejoin="round" aria-hidden="true">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-          <polyline points="16 17 21 12 16 7"/>
-          <line x1="21" y1="12" x2="9" y2="12"/>
-        </svg>
-        <span class="app-header__logout-label">Log out</span>
-      </button>
+      <div class="app-header__actions">
+        <!-- Settings gear icon -->
+        <button
+          class="app-header__icon-btn"
+          type="button"
+          aria-label="Settings"
+          @click="handleSettings"
+        >
+          <!-- Lucide settings (gear) icon -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+        <!-- Log out button -->
+        <button
+          class="app-header__logout"
+          type="button"
+          aria-label="Log out"
+          @click="handleLogout"
+        >
+          <!-- log-out icon -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          <span class="app-header__logout-label">Log out</span>
+        </button>
+      </div>
     </header>
 
     <!-- Offline indicator -->
@@ -167,6 +189,36 @@ async function discardDeadLetters() {
   font-weight: 700;
   color: var(--text);
   letter-spacing: -0.01em;
+}
+
+.app-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-header__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 150ms ease-out, background 150ms ease-out;
+  -webkit-tap-highlight-color: transparent;
+}
+.app-header__icon-btn:hover {
+  color: var(--primary);
+  background: var(--surface-2);
+}
+.app-header__icon-btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 .app-header__logout {
