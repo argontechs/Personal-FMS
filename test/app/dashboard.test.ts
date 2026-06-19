@@ -47,6 +47,9 @@ vi.mock('#app', () => ({
     return { data: ref(null), refresh: vi.fn() }
   }),
   useRuntimeConfig: vi.fn(() => ({ public: {} })),
+  navigateTo: vi.fn(),
+  definePageMeta: vi.fn(),
+  useRoute: vi.fn(() => ({ path: '/', name: 'index', params: {}, query: {}, hash: '' })),
 }))
 
 // useOfflineQueue mock so QuickLog renders without IndexedDB

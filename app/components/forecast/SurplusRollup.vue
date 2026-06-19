@@ -23,38 +23,45 @@ const leaking = computed(() => props.rollup.rawSurplusCents > 0 && props.deltaCa
 </script>
 
 <template>
-  <section class="surplus-rollup">
-    <h2 class="surplus-rollup__title">This month</h2>
-
+  <section class="surplus-rollup card">
     <div class="surplus-rollup__row">
-      <span class="surplus-rollup__label">Income</span>
-      <span class="surplus-rollup__value surplus-rollup__value--income">{{ formatRM(rollup.incomeCents) }}</span>
+      <span class="surplus-rollup__row-label">Income</span>
+      <span class="surplus-rollup__row-value surplus-rollup__row-value--income tabnum">{{ formatRM(rollup.incomeCents) }}</span>
     </div>
     <div class="surplus-rollup__row">
-      <span class="surplus-rollup__label">Living costs</span>
-      <span class="surplus-rollup__value">{{ formatRM(rollup.livingCents) }}</span>
+      <span class="surplus-rollup__row-label">Living costs</span>
+      <span class="surplus-rollup__row-value tabnum">{{ formatRM(rollup.livingCents) }}</span>
     </div>
     <div class="surplus-rollup__row">
-      <span class="surplus-rollup__label">Debt service</span>
-      <span class="surplus-rollup__value">{{ formatRM(rollup.debtServiceCents) }}</span>
+      <span class="surplus-rollup__row-label">Debt service</span>
+      <span class="surplus-rollup__row-value tabnum">{{ formatRM(rollup.debtServiceCents) }}</span>
     </div>
     <div class="surplus-rollup__row">
-      <span class="surplus-rollup__label">Card interest <span class="surplus-rollup__sub">(carrying cost)</span></span>
-      <span class="surplus-rollup__value surplus-rollup__value--interest">{{ formatRM(rollup.interestCents) }}</span>
+      <span class="surplus-rollup__row-label">
+        Card interest
+        <span class="surplus-rollup__row-sub">carrying cost</span>
+      </span>
+      <span class="surplus-rollup__row-value surplus-rollup__row-value--negative tabnum">{{ formatRM(rollup.interestCents) }}</span>
     </div>
 
     <div class="surplus-rollup__divider" />
 
     <div class="surplus-rollup__row surplus-rollup__row--surplus">
-      <span class="surplus-rollup__label surplus-rollup__label--strong">Surplus after interest</span>
-      <span class="surplus-rollup__value surplus-rollup__value--surplus">{{ formatRM(rollup.surplusAfterInterestCents) }}</span>
+      <span class="surplus-rollup__row-label surplus-rollup__row-label--strong">Surplus after interest</span>
+      <span class="surplus-rollup__row-value surplus-rollup__row-value--surplus tabnum">{{ formatRM(rollup.surplusAfterInterestCents) }}</span>
     </div>
 
-    <!-- §14 D2: leak insight — surplus > 0 but cash didn't rise -->
+    <!-- §14 D2: leak insight -->
     <div v-if="leaking" class="surplus-rollup__leak">
-      <span class="surplus-rollup__leak-icon">~</span>
+      <!-- trending-down -->
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+        stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0">
+        <polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/>
+        <polyline points="17 18 23 18 23 12"/>
+      </svg>
       <span>
-        You cleared {{ formatRM(rollup.rawSurplusCents) }} but it didn't land in savings.
+        You cleared <span class="tabnum">{{ formatRM(rollup.rawSurplusCents) }}</span> but it didn't land in savings.
       </span>
     </div>
   </section>
@@ -62,27 +69,15 @@ const leaking = computed(() => props.rollup.rawSurplusCents > 0 && props.deltaCa
 
 <style scoped>
 .surplus-rollup {
-  background: #fff;
-  border-radius: 16px;
-  padding: 20px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
-}
-
-.surplus-rollup__title {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: #555;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin: 0 0 14px;
+  /* uses .card globally */
 }
 
 .surplus-rollup__row {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  padding: 8px 0;
-  border-bottom: 1px solid #f5f5f5;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .surplus-rollup__row--surplus {
@@ -90,43 +85,47 @@ const leaking = computed(() => props.rollup.rawSurplusCents > 0 && props.deltaCa
   padding-top: 12px;
 }
 
-.surplus-rollup__label {
-  font-size: 0.85rem;
-  color: #777;
+.surplus-rollup__row-label {
+  font-size: 14px;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.surplus-rollup__label--strong {
+.surplus-rollup__row-label--strong {
   font-weight: 600;
-  color: #333;
+  color: var(--text);
 }
 
-.surplus-rollup__sub {
-  font-size: 0.72rem;
-  color: #aaa;
+.surplus-rollup__row-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: .7;
 }
 
-.surplus-rollup__value {
-  font-size: 0.9rem;
+.surplus-rollup__row-value {
+  font-size: 14px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--text);
 }
 
-.surplus-rollup__value--income {
-  color: #276749;
+.surplus-rollup__row-value--income {
+  color: var(--positive);
 }
 
-.surplus-rollup__value--interest {
-  color: #c0392b;
+.surplus-rollup__row-value--negative {
+  color: var(--negative);
 }
 
-.surplus-rollup__value--surplus {
-  font-size: 1.1rem;
-  color: #2c5282;
+.surplus-rollup__row-value--surplus {
+  font-size: 18px;
+  color: var(--primary);
 }
 
 .surplus-rollup__divider {
   height: 1px;
-  background: #e8e8e8;
+  background: var(--border);
   margin: 4px 0;
 }
 
@@ -135,18 +134,12 @@ const leaking = computed(() => props.rollup.rawSurplusCents > 0 && props.deltaCa
   align-items: flex-start;
   gap: 8px;
   margin-top: 14px;
-  background: #fff8e1;
+  background: rgba(217,119,6,.08);
+  border: 1px solid rgba(217,119,6,.2);
   border-radius: 10px;
   padding: 12px 14px;
-  font-size: 0.85rem;
-  color: #7d5a00;
+  font-size: 13px;
+  color: var(--warning);
   line-height: 1.5;
-}
-
-.surplus-rollup__leak-icon {
-  font-weight: 800;
-  font-size: 1.1rem;
-  flex-shrink: 0;
-  color: #b7791f;
 }
 </style>

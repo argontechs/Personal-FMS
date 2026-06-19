@@ -15,20 +15,23 @@ const untilLabel = computed(() => {
 </script>
 
 <template>
-  <section class="sts-hero">
+  <section class="sts-hero card">
     <template v-if="sts.isNegative">
-      <!-- Never show a negative number. Show RM0 + the shortfall in red. -->
       <p class="sts-hero__until">Safe to spend until {{ untilLabel }}</p>
-      <p data-testid="sts-negative" class="sts-hero__amount sts-hero__amount--red">RM0</p>
-      <p class="sts-hero__shortfall">{{ formatRM(sts.shortfallCents) }} short this cycle</p>
+      <p data-testid="sts-negative" class="sts-hero__amount sts-hero__amount--negative tabnum">RM0</p>
+      <p class="sts-hero__shortfall tabnum">{{ formatRM(sts.shortfallCents) }} short this cycle</p>
       <p class="sts-hero__note">You're already committed past your buffer.</p>
     </template>
     <template v-else>
       <p class="sts-hero__until">Safe to spend until {{ untilLabel }}</p>
-      <p class="sts-hero__amount">{{ formatRM(sts.cycleCents) }}</p>
+      <p class="sts-hero__amount tabnum">{{ formatRM(sts.cycleCents) }}</p>
       <div class="sts-hero__chips" role="group" aria-label="Spend rate">
-        <span class="sts-chip">{{ formatRM(sts.dailyCents) }}<span class="sts-chip__unit">/day</span></span>
-        <span class="sts-chip">{{ formatRM(sts.weeklyCents) }}<span class="sts-chip__unit">/week</span></span>
+        <span class="sts-chip tabnum">
+          {{ formatRM(sts.dailyCents) }}<span class="sts-chip__unit">/day</span>
+        </span>
+        <span class="sts-chip tabnum">
+          {{ formatRM(sts.weeklyCents) }}<span class="sts-chip__unit">/week</span>
+        </span>
       </div>
     </template>
   </section>
@@ -36,43 +39,45 @@ const untilLabel = computed(() => {
 
 <style scoped>
 .sts-hero {
-  background: #fff;
-  border-radius: 16px;
-  padding: 28px 20px 24px;
   text-align: center;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
+  padding: 28px 20px 24px;
+  /* Slight gradient background for premium feel — stays within token surface */
+  background: linear-gradient(160deg, var(--surface) 0%, color-mix(in srgb, var(--primary) 4%, var(--surface)) 100%);
 }
 
 .sts-hero__until {
-  font-size: 0.85rem;
-  color: #666;
-  margin: 0 0 6px;
-  letter-spacing: 0.01em;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+  letter-spacing: .01em;
+  text-transform: uppercase;
+  letter-spacing: .06em;
 }
 
 .sts-hero__amount {
-  font-size: 3rem;
+  font-size: clamp(40px, 12vw, 56px);
   font-weight: 700;
-  color: #1a1a2e;
+  color: var(--text);
   margin: 0 0 16px;
-  line-height: 1.1;
+  line-height: 1.05;
   letter-spacing: -0.02em;
 }
 
-.sts-hero__amount--red {
-  color: #c0392b;
+.sts-hero__amount--negative {
+  color: var(--negative);
 }
 
 .sts-hero__shortfall {
-  font-size: 1.05rem;
+  font-size: 16px;
   font-weight: 600;
-  color: #c0392b;
+  color: var(--negative);
   margin: 0 0 4px;
 }
 
 .sts-hero__note {
-  font-size: 0.8rem;
-  color: #888;
+  font-size: 13px;
+  color: var(--text-muted);
   margin: 0;
 }
 
@@ -84,21 +89,21 @@ const untilLabel = computed(() => {
 
 .sts-chip {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 3px;
-  background: #f0f4ff;
-  color: #2c5282;
-  border-radius: 20px;
+  background: var(--surface-2);
+  color: var(--primary);
+  border-radius: var(--radius-chip);
   padding: 8px 16px;
-  font-size: 1rem;
+  font-size: 15px;
   font-weight: 600;
   min-height: 44px;
-  align-items: center;
 }
 
 .sts-chip__unit {
-  font-size: 0.75rem;
+  font-size: 12px;
   font-weight: 400;
-  color: #5a7abf;
+  color: var(--text-muted);
+  margin-left: 1px;
 }
 </style>

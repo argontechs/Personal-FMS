@@ -43,6 +43,7 @@ export default defineConfig({
         test: {
           name: 'happy-dom',
           environment: 'happy-dom',
+          setupFiles: [resolve(__dirname, 'test/app/__stubs__/setup.ts')],
           include: ['test/app/**/*.test.ts', 'app/components/__tests__/**/*.test.ts'],
           env: {
             DATABASE_URL: ':memory:',

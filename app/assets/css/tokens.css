@@ -1,0 +1,217 @@
+/* Personal FMS — Design System tokens (v1.1)
+   Single source of truth. No hex in components — use these variables only.
+   Imported globally via nuxt.config.ts css[]. */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+  /* ── Color ─────────────────────────────────────────────── */
+  --bg:            #F5F7FB;
+  --surface:       #FFFFFF;
+  --surface-2:     #F0F3F9;
+  --border:        #E2E8F0;
+  --text:          #0F172A;
+  --text-muted:    #64748B;
+  --primary:       #1E40AF;
+  --primary-700:   #1B3A9B;
+  --on-primary:    #FFFFFF;
+  --positive:      #059669;
+  --negative:      #DC2626;
+  --warning:       #D97706;
+  --ring:          #1E40AF;
+  --shadow:        0 1px 2px rgba(15,23,42,.04), 0 4px 16px rgba(15,23,42,.06);
+  --shadow-lg:     0 8px 30px rgba(15,23,42,.10);
+
+  /* ── Typography ─────────────────────────────────────────── */
+  --font-base:     'IBM Plex Sans', -apple-system, system-ui, sans-serif;
+
+  /* ── Spacing ─────────────────────────────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* ── Radius ──────────────────────────────────────────────── */
+  --radius-card:   16px;
+  --radius-btn:    12px;
+  --radius-input:  12px;
+  --radius-chip:   999px;
+  --radius-track:  999px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:         #0B1220;
+    --surface:    #131C2E;
+    --surface-2:  #1B2638;
+    --border:     rgba(255,255,255,.08);
+    --text:       #F1F5F9;
+    --text-muted: #94A3B8;
+    --primary:    #3B82F6;
+    --primary-700:#2563EB;
+    --on-primary: #0B1220;
+    --positive:   #34D399;
+    --negative:   #F87171;
+    --warning:    #FBBF24;
+    --ring:       #3B82F6;
+    --shadow:     0 1px 2px rgba(0,0,0,.3);
+    --shadow-lg:  0 8px 30px rgba(0,0,0,.45);
+  }
+}
+
+/* ── Global reset + base ──────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-base);
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  min-height: 100dvh;
+}
+
+/* ── Utility classes ─────────────────────────────────────── */
+
+/* Card */
+.card {
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+/* Section label */
+.section-label {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+  margin: 0 0 12px;
+}
+
+/* Button primary */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 48px;
+  padding: 0 20px;
+  border: none;
+  border-radius: var(--radius-btn);
+  background: var(--primary);
+  color: var(--on-primary);
+  font-family: var(--font-base);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 150ms ease-out, transform 150ms ease-out, opacity 150ms ease-out;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-700);
+}
+.btn-primary:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.btn-primary:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+.btn-primary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Input */
+.input {
+  display: block;
+  width: 100%;
+  height: 48px;
+  padding: 0 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-input);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-base);
+  font-size: 16px; /* ≥16px prevents iOS zoom */
+  transition: border-color 150ms ease-out;
+}
+.input:focus {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px rgba(30,64,175,.15);
+}
+.input:disabled {
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+/* Badge/pill */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--radius-chip);
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge--amber {
+  background: rgba(217,119,6,.12);
+  color: var(--warning);
+}
+.badge--green {
+  background: rgba(5,150,105,.12);
+  color: var(--positive);
+}
+.badge--red {
+  background: rgba(220,38,38,.10);
+  color: var(--negative);
+}
+
+/* Progress track */
+.progress-track {
+  height: 8px;
+  background: var(--surface-2);
+  border-radius: var(--radius-track);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: var(--radius-track);
+  transition: width 400ms ease-out;
+  min-width: 3px;
+}
+.progress-fill--savings {
+  background: var(--positive);
+}
+.progress-fill--kill-card {
+  background: var(--primary);
+}
+
+/* Tabular numbers on all money */
+.tabnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}

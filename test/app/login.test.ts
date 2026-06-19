@@ -12,6 +12,8 @@ vi.mock('#app', () => ({
   useRuntimeConfig: vi.fn(() => ({ public: {} })),
   navigateTo: vi.fn(),
   defineNuxtRouteMiddleware: vi.fn((fn: any) => fn),
+  definePageMeta: vi.fn(),
+  useRoute: vi.fn(() => ({ path: '/login', name: 'login', params: {}, query: {}, hash: '' })),
 }))
 
 // Import AFTER mocks (Vitest hoists vi.mock)

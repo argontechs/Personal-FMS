@@ -3,6 +3,7 @@ import { defineNuxtConfig } from 'nuxt/config'
 export default defineNuxtConfig({
   ssr: false,
   modules: ['@vite-pwa/nuxt'],
+  css: ['~/assets/css/tokens.css'],
   runtimeConfig: {
     vapidPrivateKey: '',          // env NUXT_VAPID_PRIVATE_KEY
     vapidSubject: 'mailto:yongwei1127@gmail.com',

@@ -26,3 +26,18 @@ export const navigateTo = (_to: string) => {}
 export function defineNuxtRouteMiddleware(fn: (...args: any[]) => any) {
   return fn
 }
+
+/** Stub for useRoute — returns a minimal route-like object for component tests */
+export function useRoute() {
+  return { path: '/', name: 'index', params: {}, query: {}, hash: '' }
+}
+
+/** Stub for definePageMeta — no-op in tests */
+export function definePageMeta(_meta: any) {}
+
+/** NuxtLink stub — renders as an anchor in tests */
+export const NuxtLink = {
+  name: 'NuxtLink',
+  props: { to: String },
+  template: '<a :href="to"><slot /></a>',
+}

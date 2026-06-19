@@ -50,17 +50,21 @@ async function log(category: SpendCategory) {
 
 <template>
   <div class="quicklog">
-    <input
-      data-test="amount"
-      v-model="amount"
-      type="number"
-      inputmode="decimal"
-      step="0.01"
-      min="0.01"
-      placeholder="RM amount"
-      aria-label="Amount in ringgit"
-      class="quicklog__amount"
-    />
+    <div class="quicklog__input-row">
+      <span class="quicklog__currency">RM</span>
+      <input
+        data-test="amount"
+        v-model="amount"
+        type="number"
+        inputmode="decimal"
+        step="0.01"
+        min="0.01"
+        placeholder="0.00"
+        aria-label="Amount in ringgit"
+        class="quicklog__amount tabnum"
+      />
+    </div>
+
     <div class="chips" role="group" aria-label="Expense category">
 
       <!-- Food — utensils -->
@@ -164,55 +168,94 @@ async function log(category: SpendCategory) {
 .quicklog {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   padding: 16px;
 }
 
+/* ── Amount input row ────────────────────────────────────── */
+.quicklog__input-row {
+  display: flex;
+  align-items: center;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-input);
+  background: var(--surface);
+  overflow: hidden;
+  transition: border-color 150ms ease-out;
+}
+
+.quicklog__input-row:focus-within {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px rgba(30,64,175,.12);
+}
+
+.quicklog__currency {
+  padding: 0 12px 0 16px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-muted);
+  user-select: none;
+}
+
 .quicklog__amount {
-  font-size: 1.5rem;
-  padding: 12px 16px;
-  border: 1px solid var(--border, #ccc);
-  border-radius: 12px;
-  width: 100%;
-  box-sizing: border-box;
+  flex: 1;
+  height: 52px;
+  border: none;
+  background: transparent;
+  font-family: var(--font-base);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  padding: 0 16px 0 0;
+  outline: none;
   -webkit-appearance: none;
   appearance: none;
 }
 
+.quicklog__amount::placeholder {
+  color: var(--border);
+  font-weight: 400;
+}
+
+/* ── Category chips ──────────────────────────────────────── */
 .chips {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-/* Design-system chip spec: pill, ≥44px, SVG icon + label */
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-height: 44px;
   padding: 0 14px;
-  border: none;
-  border-radius: 999px;
-  background: var(--surface-2, #f0f0f0);
-  color: var(--text, #0f172a);
-  font-family: inherit;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-chip);
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: var(--font-base);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  transition: background 150ms ease-out, color 150ms ease-out, transform 150ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out, transform 150ms ease-out;
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .chip:active:not(:disabled) {
   transform: scale(0.97);
-  background: var(--primary, #1e40af);
-  color: var(--on-primary, #ffffff);
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
 }
 
 .chip:focus-visible {
-  outline: 2px solid var(--ring, #1e40af);
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
 

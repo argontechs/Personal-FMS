@@ -1,5 +1,5 @@
 <!-- app/pages/index.vue -->
-<!-- §4 §5 §7: Dashboard — STS hero → EF/Kill-Card progress → debt card → monthly rollup → QuickLog. -->
+<!-- §4 §5 §7: Dashboard — STS hero → QuickLog → Goals → Debt → Monthly rollup. -->
 <!-- Session-gated: all three endpoints return 401 if no valid session (requireSession in handlers). -->
 <script setup lang="ts">
 import { computed } from 'vue'
@@ -49,12 +49,6 @@ const cashAccountId = computed(() => {
   return cash?.id ?? arr[0]?.id ?? 1
 })
 
-// Logout: clear server session then redirect to login page.
-async function handleLogout() {
-  await $fetch('/api/auth/logout', { method: 'POST' })
-  await navigateTo('/login')
-}
-
 // After a quick-log: optimistically decrement STS via registerSpend, then re-fetch to reconcile.
 async function onLogged(txn: any) {
   const spentCents = Math.abs(txn.amount_cents ?? 0)
@@ -64,25 +58,22 @@ async function onLogged(txn: any) {
 </script>
 
 <template>
-  <main class="dashboard">
-    <!-- Top bar: logout affordance -->
-    <div class="dashboard__topbar">
-      <button class="dashboard__logout" type="button" @click="handleLogout">Log out</button>
-    </div>
-
-    <!-- 1. Safe-to-Spend Hero — dominant primary number -->
+  <div class="dashboard">
+    <!-- 1. Safe-to-Spend Hero — the dominant primary number -->
     <SafeToSpendHero v-if="displaySts" :sts="displaySts" />
     <div v-else class="dashboard__skeleton" aria-label="Loading…" />
 
-    <!-- 2. QuickLog — the daily action, placed immediately after the hero so it's always visible -->
+    <!-- 2. QuickLog — the daily action, immediately below the hero -->
     <section class="dashboard__section">
-      <h2 class="dashboard__section-title">Log a spend</h2>
-      <QuickLog :account-id="cashAccountId" @logged="onLogged" />
+      <p class="section-label">Log a spend</p>
+      <div class="card dashboard__quicklog-card">
+        <QuickLog :account-id="cashAccountId" @logged="onLogged" />
+      </div>
     </section>
 
     <!-- 3. EF + Kill-Card progress -->
     <section v-if="goals" class="dashboard__section">
-      <h2 class="dashboard__section-title">Goals</h2>
+      <p class="section-label">Goals</p>
       <div class="dashboard__goal-stack">
         <GoalProgressBar
           label="Emergency Fund"
@@ -101,39 +92,39 @@ async function onLogged(txn: any) {
 
     <!-- 4. Debt card -->
     <section v-if="debt" class="dashboard__section">
+      <p class="section-label">Credit Card</p>
       <CardDebtCard :debt="debt" />
     </section>
 
     <!-- 5. Monthly rollup -->
     <section v-if="forecast" class="dashboard__section">
+      <p class="section-label">This month</p>
       <SurplusRollup :rollup="forecast.rollup" :delta-cash-cents="deltaCashCents" />
     </section>
-  </main>
+  </div>
 </template>
 
 <style scoped>
 .dashboard {
   max-width: 480px;
   margin: 0 auto;
-  padding: 16px 16px 40px;
+  padding: 16px 16px 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  background: #f4f6fb;
-  min-height: 100dvh;
+  gap: 24px;
 }
 
+/* Shimmer skeleton while STS loads */
 .dashboard__skeleton {
-  height: 180px;
-  border-radius: 16px;
-  background: #e8edf5;
-  animation: shimmer 1.4s infinite;
+  height: 200px;
+  border-radius: var(--radius-card);
+  background: var(--surface-2);
+  animation: shimmer 1.4s ease-in-out infinite;
 }
 
 @keyframes shimmer {
-  0%   { opacity: 1; }
-  50%  { opacity: 0.5; }
-  100% { opacity: 1; }
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
 }
 
 .dashboard__section {
@@ -142,43 +133,15 @@ async function onLogged(txn: any) {
   gap: 10px;
 }
 
-.dashboard__section-title {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #999;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin: 0;
-  padding: 0 2px;
-}
-
 .dashboard__goal-stack {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
-.dashboard__topbar {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  min-height: 32px;
-}
-
-.dashboard__logout {
-  background: none;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  color: #64748b;
-  font-size: 0.75rem;
-  font-weight: 500;
-  padding: 4px 10px;
-  cursor: pointer;
-  transition: color 0.1s, border-color 0.1s;
-}
-
-.dashboard__logout:hover {
-  color: #dc2626;
-  border-color: #fca5a5;
+/* QuickLog sits inside a card with no extra padding — QuickLog has its own padding */
+.dashboard__quicklog-card {
+  padding: 0;
+  overflow: hidden;
 }
 </style>
