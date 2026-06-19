@@ -4,7 +4,7 @@
 import { db } from '../db/index';
 import { recurringItems, debts, accounts, transactions } from '../db/schema';
 import { postTransaction } from './post';
-import { todayMYT } from './mytDate';
+import { todayMYT, nextDueDate } from './mytDate';
 import { and, eq, lte } from 'drizzle-orm';
 
 // Maps a template's free-text category into the transactions enum.
@@ -149,6 +149,83 @@ export function runPostRecurring(asOf?: string): { posted: number; interest: num
       source: 'auto',
     });
     interestPosted++;
+  }
+
+  // -----------------------------------------------------------------------
+  // 3. Advance next_due_date for reminder-only (is_active=true, auto_post=false) items
+  //    that are due or overdue. No transactions are written; only next_due_date and
+  //    last_posted_date are updated so committedOutflowsBeforeCents picks up the new cycle.
+  // -----------------------------------------------------------------------
+  const remindersDue = db.select().from(recurringItems)
+    .where(and(
+      eq(recurringItems.is_active, true),
+      eq(recurringItems.auto_post, false),
+      lte(recurringItems.next_due_date, today),
+    )).all();
+
+  for (const item of remindersDue) {
+    // Skip items with no day_of_month — can't compute next occurrence.
+    if (item.day_of_month == null) continue;
+
+    // Skip fully-exhausted finite templates (same guard as auto path).
+    if (item.remaining_occurrences != null && item.remaining_occurrences <= 0) {
+      db.update(recurringItems)
+        .set({ is_active: false, updated_at: Date.now() })
+        .where(eq(recurringItems.id, item.id))
+        .run();
+      continue;
+    }
+
+    const postDate = item.next_due_date ?? today;
+
+    // Honor end_date: if postDate >= end_date, deactivate without rolling.
+    if (item.end_date && postDate >= item.end_date) {
+      db.update(recurringItems)
+        .set({ is_active: false, updated_at: Date.now() })
+        .where(eq(recurringItems.id, item.id))
+        .run();
+      continue;
+    }
+
+    // Advance next_due_date to the next FUTURE occurrence (loop until > today).
+    // Mirror the auto-post convention: advance one day past postDate before calling
+    // nextDueDate so the same-day occurrence doesn't recur immediately.
+    const [py, pm, pd] = postDate.split('-').map(Number);
+    const dayAfter = new Date(Date.UTC(py, pm - 1, pd + 1));
+    const dayAfterISO = `${dayAfter.getUTCFullYear()}-${String(dayAfter.getUTCMonth() + 1).padStart(2, '0')}-${String(dayAfter.getUTCDate()).padStart(2, '0')}`;
+    let nextDue = nextDueDate(dayAfterISO, item.day_of_month);
+    // Safety loop: in unusual catch-up scenarios, keep rolling until strictly > today.
+    while (nextDue <= today) {
+      const [ny, nm, nd] = nextDue.split('-').map(Number);
+      const d2 = new Date(Date.UTC(ny, nm - 1, nd + 1));
+      const d2ISO = `${d2.getUTCFullYear()}-${String(d2.getUTCMonth() + 1).padStart(2, '0')}-${String(d2.getUTCDate()).padStart(2, '0')}`;
+      nextDue = nextDueDate(d2ISO, item.day_of_month);
+    }
+
+    // Honor end_date: don't roll past it.
+    if (item.end_date && nextDue >= item.end_date) {
+      db.update(recurringItems)
+        .set({ is_active: false, updated_at: Date.now() })
+        .where(eq(recurringItems.id, item.id))
+        .run();
+      continue;
+    }
+
+    // Decrement remaining_occurrences if finite (same as auto path: 1 → 0 → deactivate).
+    const newRemaining = item.remaining_occurrences == null
+      ? null
+      : Math.max(0, item.remaining_occurrences - 1);
+
+    db.update(recurringItems)
+      .set({
+        next_due_date: nextDue,
+        last_posted_date: postDate,
+        remaining_occurrences: newRemaining,
+        is_active: newRemaining === 0 ? false : item.is_active,
+        updated_at: Date.now(),
+      })
+      .where(eq(recurringItems.id, item.id))
+      .run();
   }
 
   return { posted, interest: interestPosted };

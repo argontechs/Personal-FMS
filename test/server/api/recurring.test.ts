@@ -268,6 +268,42 @@ describe('recurring API — PATCH edits template', () => {
       body: { amount_cents: -50 },
     })).rejects.toMatchObject({ statusCode: 400 })
   })
+
+  it('PATCH returns 400 for invalid cadence (hourly)', async () => {
+    const created = await authFetch('/api/recurring', {
+      method: 'POST',
+      body: { name: 'CadenceTest', direction: 'expense', amount_cents: 500, day_of_month: 5, category: 'bills', start_date: '2026-06-01' },
+    })
+    await expect(authFetch(`/api/recurring/${created.id}`, {
+      method: 'PATCH',
+      body: { cadence: 'hourly' },
+    })).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('PATCH returns 400 for out-of-range day_of_month (99)', async () => {
+    const created = await authFetch('/api/recurring', {
+      method: 'POST',
+      body: { name: 'DOMTest', direction: 'expense', amount_cents: 500, day_of_month: 5, category: 'bills', start_date: '2026-06-01' },
+    })
+    await expect(authFetch(`/api/recurring/${created.id}`, {
+      method: 'PATCH',
+      body: { day_of_month: 99 },
+    })).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('PATCH valid cadence and category succeeds', async () => {
+    const created = await authFetch('/api/recurring', {
+      method: 'POST',
+      body: { name: 'ValidPatch', direction: 'expense', amount_cents: 500, day_of_month: 5, category: 'bills', start_date: '2026-06-01' },
+    })
+    const updated = await authFetch(`/api/recurring/${created.id}`, {
+      method: 'PATCH',
+      body: { cadence: 'weekly', category: 'food', amount_cents: 1000 },
+    })
+    expect(updated.cadence).toBe('weekly')
+    expect(updated.category).toBe('food')
+    expect(updated.amount_cents).toBe(1000)
+  })
 })
 
 // ---------------------------------------------------------------------------

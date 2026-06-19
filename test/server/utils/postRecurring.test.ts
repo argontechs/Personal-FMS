@@ -4,6 +4,7 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { db, sqlite } from '../../../server/db/index';
 import { accounts, debts, recurringItems, transactions } from '../../../server/db/schema';
 import { runPostRecurring } from '../../../server/utils/postRecurring';
+import { committedOutflowsBeforeCents } from '../../../server/utils/forecastReads';
 import { runMigrations } from '../../../server/db/migrate';
 import { eq } from 'drizzle-orm';
 
@@ -362,5 +363,99 @@ describe('runPostRecurring', () => {
     // A second run on the same day must be idempotent (next_due_date now points to July)
     const r2 = runPostRecurring('2026-06-01');
     expect(r2.posted).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 12. Reminder-only: next_due_date rolls forward without writing any transaction
+  // ---------------------------------------------------------------------------
+  it('reminder-only (auto_post=false): rolls next_due_date forward with 0 transactions posted', () => {
+    const b = bank();
+    const now = Date.now();
+    db.insert(recurringItems).values({
+      name: 'Rent (reminder)', direction: 'expense' as any, amount_cents: 120000, cadence: 'monthly' as any,
+      day_of_month: 1, category: 'bills', funding_account_id: b, auto_post: false,
+      start_date: '2026-06-01', next_due_date: '2026-06-01', is_active: true,
+      created_at: now, updated_at: now,
+    }).run();
+
+    const r = runPostRecurring('2026-06-19');
+    expect(r.posted).toBe(0); // no ledger row written
+    expect(db.select().from(transactions).all().length).toBe(0); // really no transaction
+
+    const item = db.select().from(recurringItems).all().find(i => i.name === 'Rent (reminder)')!;
+    // next_due_date must now be strictly > '2026-06-19'
+    expect(item.next_due_date! > '2026-06-19').toBe(true);
+    // Specifically rolls to July 1
+    expect(item.next_due_date).toBe('2026-07-01');
+    expect(item.last_posted_date).toBe('2026-06-01');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 12b. Reminder-only: still appears in committedOutflowsBeforeCents after rollover
+  // ---------------------------------------------------------------------------
+  it('reminder-only item still appears in committedOutflowsBeforeCents after next_due_date rolls forward', () => {
+    const b = bank();
+    const now = Date.now();
+    db.insert(recurringItems).values({
+      name: 'Insurance (reminder)', direction: 'expense' as any, amount_cents: 30000, cadence: 'monthly' as any,
+      day_of_month: 25, category: 'bills', funding_account_id: b, auto_post: false,
+      start_date: '2026-06-01', next_due_date: '2026-06-25', is_active: true,
+      created_at: now, updated_at: now,
+    }).run();
+
+    // Simulate running postRecurring a week after the due date
+    runPostRecurring('2026-07-01');
+
+    // next_due_date should now be '2026-07-25' (> '2026-07-01', < '2026-08-01')
+    const item = db.select().from(recurringItems).all().find(i => i.name === 'Insurance (reminder)')!;
+    expect(item.next_due_date).toBe('2026-07-25');
+
+    // The item must still gate into committedOutflowsBeforeCents for the new cycle
+    const committed = committedOutflowsBeforeCents(db, '2026-07-01', '2026-08-01');
+    expect(committed).toBe(30000);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 12c. Reminder-only rollover is idempotent (second run doesn't double-roll)
+  // ---------------------------------------------------------------------------
+  it('reminder-only rollover is idempotent on rerun', () => {
+    const b = bank();
+    const now = Date.now();
+    db.insert(recurringItems).values({
+      name: 'Broadband (reminder)', direction: 'expense' as any, amount_cents: 15000, cadence: 'monthly' as any,
+      day_of_month: 10, category: 'bills', funding_account_id: b, auto_post: false,
+      start_date: '2026-06-01', next_due_date: '2026-06-10', is_active: true,
+      created_at: now, updated_at: now,
+    }).run();
+
+    runPostRecurring('2026-06-19');
+    const item1 = db.select().from(recurringItems).all().find(i => i.name === 'Broadband (reminder)')!;
+    const due1 = item1.next_due_date;
+
+    // Rerun same day — should not roll again since next_due_date > today
+    runPostRecurring('2026-06-19');
+    const item2 = db.select().from(recurringItems).all().find(i => i.name === 'Broadband (reminder)')!;
+    expect(item2.next_due_date).toBe(due1); // unchanged
+  });
+
+  // ---------------------------------------------------------------------------
+  // 12d. auto_post=true behavior is unchanged after adding the reminder-only pass
+  // ---------------------------------------------------------------------------
+  it('auto_post=true item still posts a transaction and advances next_due_date', () => {
+    const b = bank();
+    const now = Date.now();
+    db.insert(recurringItems).values({
+      name: 'Unifi Auto', direction: 'expense' as any, amount_cents: 15000, cadence: 'monthly' as any,
+      day_of_month: 5, category: 'bills', funding_account_id: b, auto_post: true,
+      start_date: '2026-06-01', next_due_date: '2026-06-05', is_active: true,
+      created_at: now, updated_at: now,
+    }).run();
+
+    const r = runPostRecurring('2026-06-05');
+    expect(r.posted).toBe(1);
+    expect(db.select().from(transactions).all().length).toBe(1);
+
+    const item = db.select().from(recurringItems).all().find(i => i.name === 'Unifi Auto')!;
+    expect(item.next_due_date).toBe('2026-07-05');
   });
 });

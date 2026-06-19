@@ -163,7 +163,7 @@ function accountName(id: number | null): string {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10)
+  return new Date().toLocaleString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).slice(0, 10)
 }
 
 // ─── Add sheet ────────────────────────────────────────────────────────────────

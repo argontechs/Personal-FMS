@@ -11,6 +11,10 @@ const PATCHABLE_FIELDS = [
   'remaining_occurrences', 'remaining_installments_json', 'is_active',
 ] as const
 
+// Shared validation constants (mirrored from index.post.ts)
+const VALID_CADENCES = ['monthly', 'weekly', 'biweekly', 'yearly'] as const
+const VALID_CATEGORIES = ['food', 'transport', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'] as const
+
 export default defineEventHandler(async (event) => {
   requireSession(event)
   const id = Number(getRouterParam(event, 'id'))
@@ -24,8 +28,34 @@ export default defineEventHandler(async (event) => {
 
   if ('amount_cents' in b) {
     const ac = b.amount_cents
-    if (typeof ac !== 'number' || !Number.isInteger(ac) || ac < 0) {
-      throw createError({ statusCode: 400, statusMessage: 'amount_cents must be a non-negative integer' })
+    if (typeof ac !== 'number' || !Number.isInteger(ac) || ac <= 0) {
+      throw createError({ statusCode: 400, statusMessage: 'amount_cents must be a positive integer' })
+    }
+  }
+
+  if ('cadence' in b && !VALID_CADENCES.includes(b.cadence)) {
+    throw createError({ statusCode: 400, statusMessage: `cadence must be one of: ${VALID_CADENCES.join(', ')}` })
+  }
+
+  if ('category' in b && !VALID_CATEGORIES.includes(b.category)) {
+    throw createError({ statusCode: 400, statusMessage: `category must be one of: ${VALID_CATEGORIES.join(', ')}` })
+  }
+
+  if ('auto_post' in b && typeof b.auto_post !== 'boolean') {
+    throw createError({ statusCode: 400, statusMessage: 'auto_post must be a boolean' })
+  }
+
+  if ('day_of_month' in b && b.day_of_month !== null) {
+    const dom = b.day_of_month
+    if (!Number.isInteger(dom) || dom < 1 || dom > 31) {
+      throw createError({ statusCode: 400, statusMessage: 'day_of_month must be an integer 1–31' })
+    }
+  }
+
+  if ('weekday' in b && b.weekday !== null) {
+    const wd = b.weekday
+    if (!Number.isInteger(wd) || wd < 0 || wd > 6) {
+      throw createError({ statusCode: 400, statusMessage: 'weekday must be an integer 0–6' })
     }
   }
 
