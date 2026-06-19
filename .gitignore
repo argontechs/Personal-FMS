@@ -8,3 +8,11 @@ dist
 /data
 /backups
 .DS_Store
+<<<<<<< Updated upstream
+=======
+.playwright-mcp
+*.png
+/tmp-screens
+*.pdf
+.claude/worktrees/agent-aa27cd30459f4f1d5
+>>>>>>> Stashed changes
