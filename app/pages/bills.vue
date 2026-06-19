@@ -49,7 +49,8 @@ interface Account {
 }
 
 // ─── Data fetching ────────────────────────────────────────────────────────────
-const { data: rawItems, refresh: refreshItems, error: itemsError } = await useFetch<RecurringItem[]>('/api/recurring')
+// `?all=1` so paused items stay listed (and can be resumed) instead of vanishing on refresh.
+const { data: rawItems, refresh: refreshItems, error: itemsError } = await useFetch<RecurringItem[]>('/api/recurring', { query: { all: '1' } })
 const { data: accounts } = await useFetch<Account[]>('/api/accounts')
 
 const localItems = ref<RecurringItem[]>([])
