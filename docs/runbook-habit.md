@@ -11,14 +11,14 @@ This runbook covers the production deployment and operational verification of th
 | In-process scheduler | Nitro `scheduledTasks` (croner) | Requires `preset: 'node-server'` + `experimental: { tasks: true }` |
 | Bill/payday dispatch | `server/tasks/notify-dispatch.ts` | Every 5 min; MYT ≥ 09:00 gate enforced in `runDispatch` |
 | Recurring auto-post | `server/tasks/post-recurring.ts` | Daily 06:00 UTC (post-MYT-midnight) |
-| OS-cron watchdog | crontab on `money` user | Hits `127.0.0.1:3000` loopback — **permanent insurance** |
+| OS-cron watchdog | crontab on `argontechs-fms` user | Hits `127.0.0.1:3000` loopback — **permanent insurance** |
 | Web Push | VAPID (`NUXT_VAPID_PRIVATE_KEY` + `NUXT_PUBLIC_VAPID_PUBLIC_KEY`) | iOS requires Home Screen install (standalone) |
 
 ---
 
 ## 2. Required environment variables
 
-Set these in `/home/fms/htdocs/fms.argontechs.dev/.env` and reload with `pm2 reload --update-env`:
+Set these in `/home/argontechs-fms/htdocs/fms.argontechs.dev/.env` and reload with `pm2 reload --update-env`:
 
 ```
 NUXT_VAPID_PRIVATE_KEY=<your-vapid-private-key>
@@ -38,14 +38,14 @@ After each deploy, verify the in-process croner actually fires:
 
 ```bash
 # On the VPS, as the site user:
-cd /home/fms/htdocs/fms.argontechs.dev
+cd /home/argontechs-fms/htdocs/fms.argontechs.dev
 
 # 1. Build and reload
 npm run build
 pm2 reload ecosystem.config.cjs --update-env
 
 # 2. Wait ~5-7 minutes, then check logs
-pm2 logs money-fms --lines 200 --nostream | grep notify-dispatch
+pm2 logs money-fms --lines 200 --nostream | grep notify-dispatch  # run as argontechs-fms
 # Expected: at least one line like:
 #   [notify-dispatch] 2026-06-19T03:05:00.000Z sent=0 skipped=2
 
@@ -80,12 +80,12 @@ location /api/internal/ {
 
 ### Install the watchdog cron (one-time)
 
-Run as the `money` site user:
+Run as the `argontechs-fms` site user:
 
 ```bash
 # Append the cron line (idempotent: check crontab -l first to avoid duplicates)
 ( crontab -l 2>/dev/null; \
-  echo '*/5 * * * * TZ=Asia/Kuala_Lumpur curl -fsS -X POST -H "x-run-due-secret: '"$NUXT_RUN_DUE_SECRET"'" http://127.0.0.1:3000/api/internal/run-due >> /home/fms/logs/run-due.log 2>&1' \
+  echo '*/5 * * * * TZ=Asia/Kuala_Lumpur curl -fsS -X POST -H "x-run-due-secret: '"$NUXT_RUN_DUE_SECRET"'" http://127.0.0.1:3000/api/internal/run-due >> /home/argontechs-fms/logs/run-due.log 2>&1' \
 ) | crontab -
 
 # Verify it was installed
@@ -96,7 +96,7 @@ crontab -l | grep run-due
 - `TZ=Asia/Kuala_Lumpur` — sets the cron daemon's timezone so the 09:00-MYT gate in `runDispatch` receives the correct wall-clock time.
 - `x-run-due-secret: $NUXT_RUN_DUE_SECRET` — must match `NUXT_RUN_DUE_SECRET` in PM2 process env (`pm2 env 0 | grep RUN_DUE`).
 - `http://127.0.0.1:3000` — loopback only; never use the public hostname here.
-- Log output to `/home/fms/logs/run-due.log` for audit trail.
+- Log output to `/home/argontechs-fms/logs/run-due.log` for audit trail.
 
 ### Verify the watchdog works
 
@@ -133,7 +133,7 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 5. On the VPS, confirm the subscription was stored:
 
 ```bash
-sqlite3 /home/fms/data/money.sqlite \
+sqlite3 /home/argontechs-fms/data/money.sqlite \
   "SELECT id, substr(endpoint,1,40), failed_at FROM push_subscriptions;"
 # Expected: one row, failed_at NULL
 ```
@@ -150,7 +150,7 @@ If `failed_at` is set, the push key mismatch is the most common cause — verify
 4. Confirm exactly **one** transfer row and an EF balance increment:
 
 ```bash
-sqlite3 /home/fms/data/money.sqlite \
+sqlite3 /home/argontechs-fms/data/money.sqlite \
   "SELECT id, amount_cents, uuid FROM transfers ORDER BY id DESC LIMIT 5;"
 ```
 

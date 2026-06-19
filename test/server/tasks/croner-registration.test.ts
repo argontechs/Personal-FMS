@@ -103,13 +103,12 @@ describe('server/tasks/post-recurring.ts — defineTask contract', () => {
     expect(typeof task.run).toBe('function')
   })
 
-  it('run() executes without throwing and returns a result', () => {
+  it('run() executes without throwing and returns a result', async () => {
     // runPostRecurring needs a DB — mock via vi.mock at the module level.
     // We just confirm it is callable; correctness is tested in postRecurring.test.ts.
     // For the smoke-test we only care the function exists and is callable.
-    expect(() => {
-      try { task.run() } catch { /* DB not available in unit env — expected */ }
-    }).not.toThrow()
+    // run() is async — must await to prevent unhandled rejection leaking to the test runner.
+    await expect(task.run()).rejects.toThrow() // DB not available in unit env — expected
   })
 })
 
