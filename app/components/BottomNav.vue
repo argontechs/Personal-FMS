@@ -38,6 +38,21 @@ const active = computed(() => route.path)
       <span class="bottom-nav__label">Activity</span>
     </NuxtLink>
 
+    <NuxtLink to="/accounts" class="bottom-nav__tab" :class="{ 'bottom-nav__tab--active': active === '/accounts' }" aria-label="Accounts">
+      <!-- landmark (Lucide) -->
+      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"
+        stroke-linejoin="round" aria-hidden="true">
+        <line x1="3" y1="22" x2="21" y2="22"/>
+        <line x1="6" y1="18" x2="6" y2="11"/>
+        <line x1="10" y1="18" x2="10" y2="11"/>
+        <line x1="14" y1="18" x2="14" y2="11"/>
+        <line x1="18" y1="18" x2="18" y2="11"/>
+        <polygon points="12 2 20 7 4 7"/>
+      </svg>
+      <span class="bottom-nav__label">Accounts</span>
+    </NuxtLink>
+
     <NuxtLink to="/budgets" class="bottom-nav__tab" :class="{ 'bottom-nav__tab--active': active === '/budgets' }" aria-label="Budgets">
       <!-- wallet -->
       <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"
