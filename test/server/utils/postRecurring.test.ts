@@ -55,6 +55,25 @@ describe('runPostRecurring', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // 1b. Reminder-only (auto_post=false): NOT auto-posted, even when due.
+  // The user logs the payment himself; the auto-poster must skip it.
+  // ---------------------------------------------------------------------------
+  it('does NOT auto-post a reminder-only (auto_post=false) item even when due', () => {
+    const b = bank();
+    const now = Date.now();
+    db.insert(recurringItems).values({
+      name: 'Rent (reminder)', direction: 'expense' as any, amount_cents: 120000, cadence: 'monthly' as any,
+      day_of_month: 19, category: 'bills', funding_account_id: b, auto_post: false,
+      start_date: '2026-06-01', next_due_date: '2026-06-19', is_active: true,
+      created_at: now, updated_at: now,
+    }).run();
+
+    const r = runPostRecurring('2026-06-19');
+    expect(r.posted).toBe(0); // reminder-only is never auto-posted
+    expect(db.select().from(transactions).all().length).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
   // 2. SPayLater: installments read BY INDEX, not by shifting the array
   // ---------------------------------------------------------------------------
   it('posts SPayLater by index (posted_count) without mutating remaining_installments_json', () => {

@@ -217,6 +217,10 @@ body {
   background: rgba(220,38,38,.10);
   color: var(--negative);
 }
+.badge--blue {
+  background: rgba(30,64,175,.10);
+  color: var(--primary);
+}
 
 /* Progress track */
 .progress-track {

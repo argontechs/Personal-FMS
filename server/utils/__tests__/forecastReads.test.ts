@@ -97,6 +97,19 @@ describe('committedOutflowsBeforeCents', () => {
   it('returns 0 when no qualifying items', () => {
     expect(committedOutflowsBeforeCents(db, '2026-06-18', '2026-06-23')).toBe(0)
   })
+
+  // v2: reminder-only (auto_post=false) items are NOT auto-deducted, but the money is still
+  // committed — they MUST count as expected outflows so Safe-to-Spend stays honest.
+  it('counts reminder-only (auto_post=false) active expense items as committed outflows', () => {
+    db.insert(recurringItems).values([
+      { name: 'AutoBill', direction: 'expense', amount_cents: 8200, category: 'bills',
+        auto_post: true, start_date: '2026-06-01', next_due_date: '2026-06-20', is_active: true, created_at: 1, updated_at: 1 },
+      { name: 'ReminderBill', direction: 'expense', amount_cents: 12000, category: 'bills',
+        auto_post: false, start_date: '2026-06-01', next_due_date: '2026-06-21', is_active: true, created_at: 1, updated_at: 1 },
+    ]).run()
+    // Both in window (2026-06-18, 2026-06-23): 8200 + 12000 = 20200 regardless of auto_post.
+    expect(committedOutflowsBeforeCents(db, '2026-06-18', '2026-06-23')).toBe(20200)
+  })
 })
 
 describe('projectedVariableSpendCents', () => {

@@ -140,6 +140,13 @@ const dueLine = computed(() => {
         >
           {{ item.direction === 'income' ? '+' : '-' }}{{ amountDisplay }}
         </span>
+        <!-- Mode badge: expense items only. Auto = auto-deducted; Reminder = you log it yourself. -->
+        <span
+          v-if="item.direction === 'expense'"
+          :class="['badge', item.auto_post ? 'badge--blue' : 'badge--amber', 'rrow__mode-badge']"
+          data-test="mode-badge"
+          :title="item.auto_post ? 'Auto-deducted — a transaction is logged for you' : 'Reminder only — you log the payment yourself'"
+        >{{ item.auto_post ? 'Auto' : 'Reminder' }}</span>
         <span v-if="!item.is_active" class="badge badge--amber rrow__paused-badge">Paused</span>
       </div>
     </div>
@@ -306,6 +313,7 @@ const dueLine = computed(() => {
 .rrow__amount--expense { color: var(--text); }
 
 .rrow__paused-badge { font-size: 11px; padding: 2px 7px; }
+.rrow__mode-badge { font-size: 11px; padding: 2px 7px; }
 
 .rrow__actions {
   display: flex;

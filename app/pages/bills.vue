@@ -80,6 +80,56 @@ const debtItems = computed(() =>
   localItems.value.filter(i => i.direction === 'expense' && i.category === 'debt')
 )
 
+// ─── Upcoming charges (next ~14 days) ───────────────────────────────────────────
+// Active EXPENSE items (both auto-deduct and reminder-only) whose next_due_date falls
+// within today..today+14. Reminder-only ones are the ones the user must act on himself.
+const UPCOMING_WINDOW_DAYS = 14
+
+function addDaysISO(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d + days))
+  return dt.toISOString().slice(0, 10)
+}
+
+interface UpcomingCharge {
+  id: number
+  name: string
+  amount_cents: number
+  is_variable: boolean
+  next_due_date: string
+  auto_post: boolean
+}
+
+const upcomingCharges = computed<UpcomingCharge[]>(() => {
+  const today = todayISO()
+  const horizon = addDaysISO(today, UPCOMING_WINDOW_DAYS)
+  return localItems.value
+    .filter(i =>
+      i.direction === 'expense' &&
+      i.is_active &&
+      i.next_due_date != null &&
+      i.next_due_date >= today &&
+      i.next_due_date <= horizon,
+    )
+    .map(i => ({
+      id: i.id,
+      name: i.name,
+      amount_cents: i.amount_cents,
+      is_variable: i.is_variable,
+      next_due_date: i.next_due_date as string,
+      auto_post: i.auto_post,
+    }))
+    .sort((a, b) => a.next_due_date.localeCompare(b.next_due_date))
+})
+
+function chargeAmount(c: UpcomingCharge): string {
+  const prefix = c.is_variable ? '~' : ''
+  return prefix + 'RM' + (c.amount_cents / 100).toLocaleString('en-MY', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+}
+
 // Card-funded items eligible for flip-off-card
 const cardAccountId = computed<number | null>(() => {
   if (!accounts.value) return null
@@ -122,6 +172,9 @@ const addNameRef = ref<HTMLInputElement | null>(null)
 const addError = ref('')
 const addSubmitting = ref(false)
 
+// mode → auto_post: 'auto' = auto-deduct (logs a ledger txn), 'reminder' = reminder-only (user logs it).
+type PostMode = 'auto' | 'reminder'
+
 const addForm = ref({
   name: '',
   direction: 'expense' as Direction,
@@ -133,6 +186,7 @@ const addForm = ref({
   category: 'bills' as Category,
   funding_account_id: '' as string | number,
   start_date: todayISO(),
+  mode: 'auto' as PostMode,
 })
 
 function openAdd() {
@@ -147,6 +201,7 @@ function openAdd() {
     category: 'bills',
     funding_account_id: '',
     start_date: todayISO(),
+    mode: 'auto',
   }
   addError.value = ''
   addSubmitting.value = false
@@ -173,7 +228,9 @@ async function submitAdd() {
     cadence: addForm.value.cadence,
     category: addForm.value.category,
     start_date: addForm.value.start_date || todayISO(),
-    auto_post: true,
+    // Income always auto-posts (payday credit). For expenses, honour the chosen mode:
+    // 'reminder' → auto_post:false (display + remind, user logs it; still counted in Safe-to-Spend).
+    auto_post: addForm.value.direction === 'income' ? true : addForm.value.mode === 'auto',
     is_active: true,
   }
   if (addForm.value.day_of_month !== '') body.day_of_month = Number(addForm.value.day_of_month)
@@ -208,6 +265,8 @@ const editForm = ref({
   weekday: '' as string | number,
   category: 'bills' as Category,
   funding_account_id: '' as string | number,
+  direction: 'expense' as Direction,
+  mode: 'auto' as PostMode,
 })
 
 function openEdit(item: RecurringItem) {
@@ -221,6 +280,8 @@ function openEdit(item: RecurringItem) {
     weekday: item.weekday ?? '',
     category: item.category as Category,
     funding_account_id: item.funding_account_id ?? '',
+    direction: item.direction,
+    mode: item.auto_post ? 'auto' : 'reminder',
   }
   editError.value = ''
   editSubmitting.value = false
@@ -250,6 +311,8 @@ async function submitEdit() {
     day_of_month: editForm.value.day_of_month !== '' ? Number(editForm.value.day_of_month) : null,
     weekday: editForm.value.weekday !== '' ? Number(editForm.value.weekday) : null,
     funding_account_id: editForm.value.funding_account_id !== '' ? Number(editForm.value.funding_account_id) : null,
+    // Persist the deduct/reminder choice. Income stays auto_post (payday credit).
+    auto_post: editForm.value.direction === 'income' ? true : editForm.value.mode === 'auto',
   }
 
   editSubmitting.value = true
@@ -422,6 +485,36 @@ async function submitFlip() {
           Move off credit card
         </button>
       </div>
+
+      <!-- Upcoming charges (next 14 days) — both auto-deduct and reminder-only items -->
+      <section
+        v-if="upcomingCharges.length"
+        class="bills-page__group"
+        data-test="upcoming-charges"
+        aria-label="Upcoming charges"
+      >
+        <p class="section-label">Upcoming charges · next 14 days</p>
+        <div class="card bills-page__upcoming">
+          <div
+            v-for="c in upcomingCharges"
+            :key="'up-' + c.id"
+            class="upcoming-row"
+            data-test="upcoming-row"
+          >
+            <div class="upcoming-row__left">
+              <span class="upcoming-row__name">{{ c.name }}</span>
+              <span class="upcoming-row__date">{{ c.next_due_date }}</span>
+            </div>
+            <div class="upcoming-row__right">
+              <span class="upcoming-row__amount tabnum">{{ chargeAmount(c) }}</span>
+              <span
+                :class="['badge', c.auto_post ? 'badge--blue' : 'badge--amber', 'upcoming-row__badge']"
+                data-test="upcoming-mode-badge"
+              >{{ c.auto_post ? 'Auto' : 'Reminder' }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <!-- Income group -->
       <section v-if="incomeItems.length" class="bills-page__group" aria-label="Income">
@@ -625,6 +718,25 @@ async function submitFlip() {
               </select>
             </div>
 
+            <!-- Auto-deduct vs Reminder-only (expense items only) -->
+            <fieldset v-if="addForm.direction === 'expense'" class="sheet__field mode-field" data-test="add-mode">
+              <legend class="sheet__label">How should this be handled?</legend>
+              <label class="mode-option" :class="{ 'mode-option--active': addForm.mode === 'auto' }">
+                <input v-model="addForm.mode" type="radio" value="auto" name="add-mode" :disabled="addSubmitting" />
+                <span class="mode-option__body">
+                  <span class="mode-option__title">Auto-deduct <span class="badge badge--blue mode-option__badge">Auto</span></span>
+                  <span class="mode-option__desc">Logs the transaction for you on the due date.</span>
+                </span>
+              </label>
+              <label class="mode-option" :class="{ 'mode-option--active': addForm.mode === 'reminder' }">
+                <input v-model="addForm.mode" type="radio" value="reminder" name="add-mode" :disabled="addSubmitting" />
+                <span class="mode-option__body">
+                  <span class="mode-option__title">Reminder only <span class="badge badge--amber mode-option__badge">Reminder</span></span>
+                  <span class="mode-option__desc">Shows it coming &amp; reminds you — you log the payment yourself. Still counts in Safe-to-Spend.</span>
+                </span>
+              </label>
+            </fieldset>
+
             <div class="sheet__field">
               <label class="sheet__label" for="add-start">Start date</label>
               <input
@@ -755,6 +867,25 @@ async function submitFlip() {
                 <option v-for="a in (Array.isArray(accounts) ? accounts as Account[] : [])" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
             </div>
+
+            <!-- Auto-deduct vs Reminder-only (expense items only) -->
+            <fieldset v-if="editForm.direction === 'expense'" class="sheet__field mode-field" data-test="edit-mode">
+              <legend class="sheet__label">How should this be handled?</legend>
+              <label class="mode-option" :class="{ 'mode-option--active': editForm.mode === 'auto' }">
+                <input v-model="editForm.mode" type="radio" value="auto" name="edit-mode" :disabled="editSubmitting" />
+                <span class="mode-option__body">
+                  <span class="mode-option__title">Auto-deduct <span class="badge badge--blue mode-option__badge">Auto</span></span>
+                  <span class="mode-option__desc">Logs the transaction for you on the due date.</span>
+                </span>
+              </label>
+              <label class="mode-option" :class="{ 'mode-option--active': editForm.mode === 'reminder' }">
+                <input v-model="editForm.mode" type="radio" value="reminder" name="edit-mode" :disabled="editSubmitting" />
+                <span class="mode-option__body">
+                  <span class="mode-option__title">Reminder only <span class="badge badge--amber mode-option__badge">Reminder</span></span>
+                  <span class="mode-option__desc">Shows it coming &amp; reminds you — you log the payment yourself. Still counts in Safe-to-Spend.</span>
+                </span>
+              </label>
+            </fieldset>
 
             <p v-if="editError" class="sheet__error" role="alert">{{ editError }}</p>
 
@@ -1120,6 +1251,115 @@ async function submitFlip() {
   font-size: 13px;
   color: var(--text-muted);
 }
+
+/* ─── Mode toggle (auto-deduct vs reminder-only) ─────────────────────────────── */
+.mode-field {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  transition: border-color 150ms ease-out, background 150ms ease-out;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mode-option--active {
+  border-color: var(--primary);
+  background: var(--surface-2);
+}
+
+.mode-option input[type='radio'] {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.mode-option__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mode-option__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mode-option__badge { font-size: 11px; padding: 1px 6px; }
+
+.mode-option__desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* ─── Upcoming charges ──────────────────────────────────────────────────────── */
+.bills-page__upcoming {
+  padding: 0;
+  overflow: hidden;
+}
+
+.upcoming-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.upcoming-row:last-child { border-bottom: none; }
+
+.upcoming-row__left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.upcoming-row__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.upcoming-row__date {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.upcoming-row__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.upcoming-row__amount {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.upcoming-row__badge { font-size: 11px; padding: 2px 7px; }
 
 /* RecurringRow styles live in app/components/RecurringRow.vue (scoped) */
 </style>

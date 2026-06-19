@@ -132,6 +132,16 @@ describe('selectDispatches — bill reminder windows', () => {
     seedItem({ next_due_date: '2026-06-21', is_active: false })
     expect(selectDispatches('2026-06-18', 9, 10)).toHaveLength(0)
   })
+
+  // v2: reminder-only items (auto_post=false) are NOT auto-deducted, so the due-date
+  // reminder is the ONLY signal the user gets — it MUST still fire.
+  it('selects a reminder-only (auto_post=false) bill in a due window', () => {
+    seedItem({ name: 'Rent', next_due_date: '2026-06-21', auto_post: false })
+    const out = selectDispatches('2026-06-18', 9, 10)
+    expect(out).toHaveLength(1)
+    expect(out[0].kind).toBe('bill_due')
+    expect(out[0].payload.title).toContain('Rent')
+  })
 })
 
 // ─── Idempotency ─────────────────────────────────────────────────────────────

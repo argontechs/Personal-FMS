@@ -503,3 +503,152 @@ describe('Bills page — error and empty states', () => {
     expect(w.text()).toContain('No recurring items yet')
   })
 })
+
+// ─── 8. Auto-deduct vs Reminder-only mode (auto_post) ─────────────────────────
+describe('Bills page — auto-deduct vs reminder-only mode', () => {
+  it('POST persists auto_post=false when reminder-only mode is chosen', async () => {
+    const fetchMock = vi.fn(async () => ({ ...mockRecurring[1], id: 99, auto_post: false }))
+    vi.stubGlobal('$fetch', fetchMock)
+
+    const w = mountBills()
+    await flushPromises()
+
+    await w.find('[aria-label="Add new recurring item"]').trigger('click')
+    await flushPromises()
+
+    const nameInput = document.querySelector('#add-name') as HTMLInputElement
+    nameInput.value = 'Rent'
+    nameInput.dispatchEvent(new Event('input'))
+    const amountInput = document.querySelector('#add-amount') as HTMLInputElement
+    amountInput.value = '1200.00'
+    amountInput.dispatchEvent(new Event('input'))
+
+    // Select the reminder-only radio
+    const reminderRadio = document.querySelector('[data-test="add-mode"] input[value="reminder"]') as HTMLInputElement
+    expect(reminderRadio).not.toBeNull()
+    reminderRadio.checked = true
+    reminderRadio.dispatchEvent(new Event('change'))
+    await flushPromises()
+
+    const confirmBtn = document.querySelector('[aria-label="Add recurring item"] .sheet__confirm') as HTMLButtonElement
+    confirmBtn.click()
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/recurring',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.objectContaining({ name: 'Rent', auto_post: false }),
+      }),
+    )
+  })
+
+  it('POST defaults auto_post=true (auto-deduct) when mode is untouched', async () => {
+    const fetchMock = vi.fn(async () => ({ ...mockRecurring[1], id: 98 }))
+    vi.stubGlobal('$fetch', fetchMock)
+
+    const w = mountBills()
+    await flushPromises()
+    await w.find('[aria-label="Add new recurring item"]').trigger('click')
+    await flushPromises()
+
+    const nameInput = document.querySelector('#add-name') as HTMLInputElement
+    nameInput.value = 'Unifi'
+    nameInput.dispatchEvent(new Event('input'))
+    const amountInput = document.querySelector('#add-amount') as HTMLInputElement
+    amountInput.value = '99.00'
+    amountInput.dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    const confirmBtn = document.querySelector('[aria-label="Add recurring item"] .sheet__confirm') as HTMLButtonElement
+    confirmBtn.click()
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/recurring',
+      expect.objectContaining({ body: expect.objectContaining({ auto_post: true }) }),
+    )
+  })
+
+  it('PATCH persists auto_post=false when an item is edited to reminder-only', async () => {
+    const fetchMock = vi.fn(async () => ({ ...mockRecurring[1], auto_post: false }))
+    vi.stubGlobal('$fetch', fetchMock)
+
+    const w = mountBills()
+    await flushPromises()
+
+    await w.find('[aria-label="Edit Netflix"]').trigger('click')
+    await flushPromises()
+
+    const reminderRadio = document.querySelector('[data-test="edit-mode"] input[value="reminder"]') as HTMLInputElement
+    expect(reminderRadio).not.toBeNull()
+    reminderRadio.checked = true
+    reminderRadio.dispatchEvent(new Event('change'))
+    await flushPromises()
+
+    const confirmBtn = document.querySelector('[aria-label="Edit recurring item"] .sheet__confirm') as HTMLButtonElement
+    confirmBtn.click()
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/recurring/2',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: expect.objectContaining({ auto_post: false }),
+      }),
+    )
+  })
+
+  it('renders Auto and Reminder mode badges on rows', async () => {
+    const items = [
+      { ...mockRecurring[1], id: 2, name: 'AutoBill', auto_post: true },
+      { ...mockRecurring[3], id: 4, name: 'ReminderBill', auto_post: false },
+    ]
+    const w = mountBills(items)
+    await flushPromises()
+    const badges = w.findAll('[data-test="mode-badge"]')
+    const labels = badges.map(b => b.text())
+    expect(labels).toContain('Auto')
+    expect(labels).toContain('Reminder')
+  })
+})
+
+// ─── 9. Upcoming charges (next 14 days, both modes) ───────────────────────────
+describe('Bills page — Upcoming charges', () => {
+  // Build dates inside the today..today+14 window relative to the real clock.
+  function isoPlus(days: number): string {
+    const d = new Date()
+    d.setDate(d.getDate() + days)
+    return d.toISOString().slice(0, 10)
+  }
+
+  const upcomingFixtures = [
+    { ...mockRecurring[1], id: 21, name: 'AutoUpcoming',     auto_post: true,  is_active: true, next_due_date: isoPlus(3) },
+    { ...mockRecurring[3], id: 22, name: 'ReminderUpcoming', auto_post: false, is_active: true, next_due_date: isoPlus(7) },
+    { ...mockRecurring[1], id: 23, name: 'WayOut',           auto_post: true,  is_active: true, next_due_date: isoPlus(40) },
+    { ...mockRecurring[1], id: 24, name: 'PausedUpcoming',   auto_post: false, is_active: false, next_due_date: isoPlus(2) },
+  ]
+
+  it('renders the Upcoming charges section listing both auto and reminder items within 14 days', async () => {
+    const w = mountBills(upcomingFixtures)
+    await flushPromises()
+    const section = w.find('[data-test="upcoming-charges"]')
+    expect(section.exists()).toBe(true)
+    expect(section.text()).toContain('AutoUpcoming')
+    expect(section.text()).toContain('ReminderUpcoming')
+    // Both mode badges present in the upcoming list
+    const badges = section.findAll('[data-test="upcoming-mode-badge"]').map(b => b.text())
+    expect(badges).toContain('Auto')
+    expect(badges).toContain('Reminder')
+  })
+
+  it('excludes items beyond 14 days and paused items from Upcoming charges', async () => {
+    const w = mountBills(upcomingFixtures)
+    await flushPromises()
+    const section = w.find('[data-test="upcoming-charges"]')
+    expect(section.text()).not.toContain('WayOut')
+    expect(section.text()).not.toContain('PausedUpcoming')
+    // Exactly 2 upcoming rows (AutoUpcoming + ReminderUpcoming)
+    expect(section.findAll('[data-test="upcoming-row"]')).toHaveLength(2)
+  })
+})
