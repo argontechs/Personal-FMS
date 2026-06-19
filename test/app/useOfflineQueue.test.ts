@@ -13,7 +13,7 @@ import {
   IDBTransaction,
   IDBVersionChangeEvent,
 } from 'fake-indexeddb';
-import { useOfflineQueue, registerAutoFlush, __resetFlushState } from '../../app/composables/useOfflineQueue';
+import { useOfflineQueue, registerAutoFlush, __resetFlushState, getLastEnqueueFlush } from '../../app/composables/useOfflineQueue';
 // Import the plugin default export (will be a function due to defineNuxtPlugin shim)
 import offlineFlushPlugin from '../../app/plugins/offline-flush.client';
 
@@ -35,11 +35,7 @@ Object.assign(globalThis, {
 // Stub Nuxt's global $fetch.
 const posted: any[] = [];
 beforeEach(async () => {
-  // Drain any fire-and-forget flush promise from the previous test before we
-  // swap out $fetch — this ensures in-flight POSTs land on the old mock, not
-  // the new one, so they cannot pollute the upcoming test's `posted` array.
-  await new Promise(r => setTimeout(r, 0));
-  // Reset module-level flush singleton so cross-test in-flight guard doesn't leak.
+  // Reset module-level flush singletons so cross-test in-flight guard doesn't leak.
   __resetFlushState();
   // Fresh isolated IndexedDB per test — prevents state bleeding between tests.
   globalThis.indexedDB = new IDBFactory();
@@ -115,8 +111,8 @@ describe('useOfflineQueue', () => {
     });
     const q = useOfflineQueue();
     await q.enqueue({ date: '2026-06-18', amount_cents: -200, direction: 'expense', category: 'food', account_id: 1 });
-    // Flush triggered fire-and-forget; allow microtasks/promises to settle
-    await new Promise(r => setTimeout(r, 0));
+    // Await the ACTUAL flush promise kicked off by enqueue — deterministic, no timer guessing.
+    await getLastEnqueueFlush();
     expect(posted.length).toBe(1);
     expect(posted[0].amount_cents).toBe(-200);
     expect((await q.pending()).length).toBe(0);
@@ -131,7 +127,9 @@ describe('useOfflineQueue', () => {
     });
     const q = useOfflineQueue();
     await q.enqueue({ date: '2026-06-18', amount_cents: -300, direction: 'expense', category: 'transport', account_id: 1 });
-    await new Promise(r => setTimeout(r, 0));
+    // No flush should have been kicked off — getLastEnqueueFlush() returns null.
+    // Await null is a no-op; assert directly without any timer.
+    await getLastEnqueueFlush();
     // $fetch should NOT have been called — item stays queued for later flush
     expect(posted.length).toBe(0);
     expect((await q.pending()).length).toBe(1);
@@ -148,7 +146,8 @@ describe('useOfflineQueue', () => {
     globalThis.$fetch = vi.fn(async () => { throw new Error('server error'); });
     const q = useOfflineQueue();
     await q.enqueue({ date: '2026-06-18', amount_cents: -400, direction: 'expense', category: 'other', account_id: 1 });
-    await new Promise(r => setTimeout(r, 0));
+    // Await the actual flush promise (it will resolve after the caught error)
+    await getLastEnqueueFlush();
     // flush was attempted but failed — item must remain queued
     expect((await q.pending()).length).toBe(1);
   });

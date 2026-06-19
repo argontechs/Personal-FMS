@@ -17,6 +17,11 @@ const STORE = 'pending_txns';
 // Simple in-flight guard: prevents concurrent flush calls from double-posting.
 let flushInFlight: Promise<{ flushed: number; remaining: number }> | null = null;
 
+// Tracks the most-recent flush promise kicked off by enqueue's fire-and-forget path.
+// Tests can await getLastEnqueueFlush() for deterministic assertions; production
+// callers never need this — they fire-and-forget via enqueue() as before.
+let lastEnqueueFlush: Promise<{ flushed: number; remaining: number }> | null = null;
+
 async function getDb(): Promise<IDBPDatabase> {
   return openDB(DB_NAME, 1, {
     upgrade(db) {
@@ -36,7 +41,12 @@ export function useOfflineQueue() {
     // then attempt flush. If the network is down or the POST fails the item stays queued
     // and will be retried on the next reconnect / app-open via registerAutoFlush.
     if ((globalThis as any).navigator?.onLine !== false) {
-      flush().catch(() => {/* leave queued; registerAutoFlush will retry */});
+      // Store the promise so tests can await it deterministically.
+      // Production callers ignore the return value of enqueue — fire-and-forget is preserved.
+      lastEnqueueFlush = flush().catch(() => {
+        /* leave queued; registerAutoFlush will retry */
+        return { flushed: 0, remaining: -1 };
+      });
     }
     return txn;
   }
@@ -71,8 +81,18 @@ export function useOfflineQueue() {
   return { enqueue, pending, flush };
 }
 
-/** Test-only: resets the module-level flushInFlight singleton between test cases. */
-export function __resetFlushState() { flushInFlight = null; }
+/** Test-only: resets the module-level singletons between test cases. */
+export function __resetFlushState() {
+  flushInFlight = null;
+  lastEnqueueFlush = null;
+}
+
+/**
+ * Test-only: returns the flush promise that the last enqueue() kicked off (if any).
+ * Await this to deterministically wait for the online-path flush to complete without
+ * relying on setTimeout(0) timers that can race under concurrent worker load.
+ */
+export function getLastEnqueueFlush() { return lastEnqueueFlush; }
 
 // Wire flush-on-open / flush-on-reconnect. Pass a custom window in tests; defaults to globalThis.window.
 export function registerAutoFlush(win: any = (globalThis as any).window): void {
