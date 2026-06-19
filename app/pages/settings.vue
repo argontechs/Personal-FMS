@@ -16,43 +16,81 @@ const { data: goalsData, refresh: refreshGoals } = await useFetch('/api/goals/pr
 const currentEfTarget = computed(() => (goalsData.value as any)?.ef?.targetCents ?? 0)
 const currentEfCents = computed(() => (goalsData.value as any)?.ef?.currentCents ?? 0)
 
-// ── Accounts data (cash balance) ───────────────────────────────────────────────
+// ── Accounts data (reconcile balances) ─────────────────────────────────────────
 const { data: accountsData, refresh: refreshAccounts } = await useFetch('/api/accounts')
-const cashAccounts = computed(() => {
+// Spendable accounts (everything except the credit card) — each can be reconciled to its real balance.
+const SPENDABLE_TYPES = ['cash', 'bank', 'ewallet', 'savings']
+const spendableAccounts = computed(() => {
   const list = (accountsData.value as any[]) ?? []
-  return list.filter((a: any) => a.type === 'cash' && a.is_active)
+  return list.filter((a: any) => SPENDABLE_TYPES.includes(a.type) && a.is_active)
 })
-const primaryCashAccount = computed(() => cashAccounts.value[0] ?? null)
 
-// ── Section 1: Correct Cash Balance ───────────────────────────────────────────
-const cashAmountRM = ref('')
-const cashSubmitting = ref(false)
-const cashSuccess = ref(false)
-const cashError = ref('')
+// ── Card data (computed card balance for the card reconcile row) ───────────────
+const { data: cardData, refresh: refreshCard } = await useFetch('/api/debt')
+const cardBalanceCents = computed(() => (cardData.value as any)?.cardBalanceCents ?? 0)
 
-async function submitCashCorrection() {
-  if (!primaryCashAccount.value) return
-  const rmVal = parseFloat(cashAmountRM.value)
+// ── Section 1: Reconcile Balances ──────────────────────────────────────────────
+// Per-account input + ephemeral status keyed by account id ('card' for the credit card).
+const reconInputs = ref<Record<string, string>>({})
+const reconSubmitting = ref<Record<string, boolean>>({})
+const reconError = ref<Record<string, string>>({})
+// status: { deltaCents } after a successful reconcile (drift corrected).
+const reconStatus = ref<Record<string, { deltaCents: number } | null>>({})
+
+function formatSignedRM(cents: number): string {
+  const sign = cents > 0 ? '+' : cents < 0 ? '-' : ''
+  return sign + 'RM' + (Math.abs(cents) / 100).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+async function reconcileAccount(acc: { id: number }) {
+  const key = String(acc.id)
+  const rmVal = parseFloat(reconInputs.value[key] ?? '')
   if (isNaN(rmVal) || rmVal < 0) {
-    cashError.value = 'Enter a valid amount (0 or more).'
+    reconError.value = { ...reconError.value, [key]: 'Enter a valid amount (0 or more).' }
     return
   }
   const target_cents = Math.round(rmVal * 100)
-  cashError.value = ''
-  cashSubmitting.value = true
-  cashSuccess.value = false
+  reconError.value = { ...reconError.value, [key]: '' }
+  reconStatus.value = { ...reconStatus.value, [key]: null }
+  reconSubmitting.value = { ...reconSubmitting.value, [key]: true }
   try {
-    await $fetch('/api/accounts/correct-cash', {
+    const res = await $fetch('/api/accounts/correct-cash', {
       method: 'POST',
-      body: { account_id: primaryCashAccount.value.id, target_cents },
+      body: { account_id: acc.id, target_cents },
     })
-    cashSuccess.value = true
-    cashAmountRM.value = ''
+    reconStatus.value = { ...reconStatus.value, [key]: { deltaCents: (res as any).deltaCents ?? 0 } }
+    reconInputs.value = { ...reconInputs.value, [key]: '' }
     await refreshAccounts()
   } catch (e: any) {
-    cashError.value = e?.data?.statusMessage ?? e?.message ?? 'Failed to correct cash balance.'
+    reconError.value = { ...reconError.value, [key]: e?.data?.statusMessage ?? e?.message ?? 'Failed to reconcile balance.' }
   } finally {
-    cashSubmitting.value = false
+    reconSubmitting.value = { ...reconSubmitting.value, [key]: false }
+  }
+}
+
+async function reconcileCard() {
+  const key = 'card'
+  const rmVal = parseFloat(reconInputs.value[key] ?? '')
+  if (isNaN(rmVal) || rmVal < 0) {
+    reconError.value = { ...reconError.value, [key]: 'Enter a valid amount (0 or more).' }
+    return
+  }
+  const real_cents = Math.round(rmVal * 100)
+  reconError.value = { ...reconError.value, [key]: '' }
+  reconStatus.value = { ...reconStatus.value, [key]: null }
+  reconSubmitting.value = { ...reconSubmitting.value, [key]: true }
+  try {
+    const res = await $fetch('/api/debts/card/reconcile', {
+      method: 'POST',
+      body: { real_cents },
+    })
+    reconStatus.value = { ...reconStatus.value, [key]: { deltaCents: (res as any).deltaCents ?? 0 } }
+    reconInputs.value = { ...reconInputs.value, [key]: '' }
+    await refreshCard()
+  } catch (e: any) {
+    reconError.value = { ...reconError.value, [key]: e?.data?.statusMessage ?? e?.message ?? 'Failed to reconcile card balance.' }
+  } finally {
+    reconSubmitting.value = { ...reconSubmitting.value, [key]: false }
   }
 }
 
@@ -135,47 +173,118 @@ async function handleLogout() {
   <div class="settings-page">
     <h1 class="settings-page__title">Settings</h1>
 
-    <!-- ── Section 1: Correct Cash Balance ─────────────────────────────────── -->
-    <section class="settings-section" aria-labelledby="cash-heading">
-      <h2 id="cash-heading" class="section-label">Correct Cash Balance</h2>
-      <div class="card">
-        <p class="settings-card__meta" v-if="primaryCashAccount">
-          Current:
-          <span class="tabnum settings-card__meta-value">
-            {{ formatRM(primaryCashAccount.balance_cents) }}
-          </span>
-          <span class="settings-card__account-name">({{ primaryCashAccount.name }})</span>
-        </p>
-        <p class="settings-card__meta settings-card__meta--muted" v-else>
-          No cash account found.
-        </p>
+    <!-- ── Section 1: Reconcile Balances ───────────────────────────────────── -->
+    <section class="settings-section" aria-labelledby="reconcile-heading">
+      <h2 id="reconcile-heading" class="section-label">Reconcile Balances</h2>
+      <p class="settings-section__hint">
+        Enter what each account really holds (and what you really owe on the card). We post a
+        ledger adjustment for the difference so the app matches reality.
+      </p>
 
-        <form class="settings-form" @submit.prevent="submitCashCorrection" novalidate>
-          <label class="settings-form__label" for="cash-amount">
-            Set new cash balance (RM)
-          </label>
-          <input
-            id="cash-amount"
-            v-model="cashAmountRM"
-            class="input settings-form__input"
-            type="number"
-            inputmode="decimal"
-            min="0"
-            step="0.01"
-            placeholder="e.g. 150.00"
-            :disabled="cashSubmitting || !primaryCashAccount"
-            autocomplete="off"
-          />
-          <p v-if="cashError" class="settings-form__error" role="alert">{{ cashError }}</p>
-          <p v-if="cashSuccess" class="settings-form__success" role="status">Cash balance updated.</p>
-          <button
-            type="submit"
-            class="btn-primary settings-form__btn"
-            :disabled="cashSubmitting || !primaryCashAccount"
+      <!-- Spendable accounts -->
+      <div class="card" v-if="spendableAccounts.length">
+        <div
+          v-for="acc in spendableAccounts"
+          :key="acc.id"
+          class="recon-row"
+          :data-test="`recon-account-${acc.id}`"
+        >
+          <div class="recon-row__head">
+            <span class="recon-row__name">{{ acc.name }}</span>
+            <span class="recon-row__computed tabnum">{{ formatRM(acc.balance_cents) }}</span>
+          </div>
+          <form
+            class="settings-form__row recon-row__form"
+            @submit.prevent="reconcileAccount(acc)"
+            novalidate
           >
-            {{ cashSubmitting ? 'Saving…' : 'Update Cash Balance' }}
-          </button>
-        </form>
+            <input
+              :id="`recon-account-${acc.id}-input`"
+              v-model="reconInputs[String(acc.id)]"
+              class="input settings-form__input"
+              type="number"
+              inputmode="decimal"
+              min="0"
+              step="0.01"
+              :placeholder="`Real balance (RM)`"
+              :disabled="reconSubmitting[String(acc.id)]"
+              autocomplete="off"
+              :aria-label="`Real balance for ${acc.name} in ringgit`"
+            />
+            <button
+              type="submit"
+              class="btn-primary settings-form__btn settings-form__btn--compact"
+              :disabled="reconSubmitting[String(acc.id)]"
+            >
+              {{ reconSubmitting[String(acc.id)] ? 'Saving…' : 'Reconcile' }}
+            </button>
+          </form>
+          <p v-if="reconError[String(acc.id)]" class="settings-form__error" role="alert">
+            {{ reconError[String(acc.id)] }}
+          </p>
+          <p
+            v-if="reconStatus[String(acc.id)]"
+            class="settings-form__success"
+            role="status"
+          >
+            <template v-if="reconStatus[String(acc.id)]!.deltaCents === 0">
+              Already up to date.
+            </template>
+            <template v-else>
+              Adjusted by {{ formatSignedRM(reconStatus[String(acc.id)]!.deltaCents) }}.
+            </template>
+          </p>
+        </div>
+      </div>
+      <div class="card" v-else>
+        <p class="settings-card__meta settings-card__meta--muted">No spendable accounts found.</p>
+      </div>
+
+      <!-- Credit card -->
+      <div class="card recon-card" data-test="recon-card">
+        <div class="recon-row">
+          <div class="recon-row__head">
+            <span class="recon-row__name">Credit Card (statement balance owed)</span>
+            <span class="recon-row__computed tabnum">{{ formatRM(cardBalanceCents) }}</span>
+          </div>
+          <form
+            class="settings-form__row recon-row__form"
+            @submit.prevent="reconcileCard"
+            novalidate
+          >
+            <input
+              id="recon-card-input"
+              v-model="reconInputs['card']"
+              class="input settings-form__input"
+              type="number"
+              inputmode="decimal"
+              min="0"
+              step="0.01"
+              placeholder="Real statement balance (RM)"
+              :disabled="reconSubmitting['card']"
+              autocomplete="off"
+              aria-label="Real credit-card statement balance in ringgit"
+            />
+            <button
+              type="submit"
+              class="btn-primary settings-form__btn settings-form__btn--compact"
+              :disabled="reconSubmitting['card']"
+            >
+              {{ reconSubmitting['card'] ? 'Saving…' : 'Reconcile' }}
+            </button>
+          </form>
+          <p v-if="reconError['card']" class="settings-form__error" role="alert">
+            {{ reconError['card'] }}
+          </p>
+          <p v-if="reconStatus['card']" class="settings-form__success" role="status">
+            <template v-if="reconStatus['card']!.deltaCents === 0">
+              Already up to date.
+            </template>
+            <template v-else>
+              Adjusted by {{ formatSignedRM(reconStatus['card']!.deltaCents) }} (payoff baseline unchanged).
+            </template>
+          </p>
+        </div>
       </div>
     </section>
 
@@ -364,6 +473,43 @@ async function handleLogout() {
 /* ── Sections ─────────────────────────────────────────────── */
 .settings-section {
   margin-bottom: var(--section-gap);
+}
+.settings-section__hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+
+/* ── Reconcile rows ───────────────────────────────────────── */
+.recon-row + .recon-row {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border, var(--surface-2));
+}
+.recon-row__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.recon-row__name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+.recon-row__computed {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  flex-shrink: 0;
+}
+.recon-row__form {
+  margin-top: 10px;
+}
+.recon-card {
+  margin-top: 12px;
 }
 
 /* ── Card meta lines ──────────────────────────────────────── */

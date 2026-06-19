@@ -14,7 +14,10 @@ const mockAccounts = [
   { id: 1, name: 'Cash Wallet', type: 'cash',    balance_cents: 12500, is_active: true },
   { id: 2, name: 'Maybank',     type: 'bank',    balance_cents: 200000, is_active: true },
   { id: 3, name: 'EF Savings',  type: 'savings', balance_cents: 45000, is_active: true },
+  { id: 4, name: 'Credit Card', type: 'card',    balance_cents: -740000, is_active: true },
 ]
+
+const mockDebt = { cardBalanceCents: 740000, creditLimitCents: 1000000 }
 
 // ─── usePush mock ──────────────────────────────────────────────────────────────
 const mockPushState = {
@@ -41,6 +44,7 @@ vi.mock('#app', () => ({
   useFetch: vi.fn(async (url: string) => {
     if (url === '/api/goals/progress') return { data: ref(mockGoals), refresh: vi.fn(), error: ref(null) }
     if (url === '/api/accounts')       return { data: ref(mockAccounts), refresh: vi.fn(), error: ref(null) }
+    if (url === '/api/debt')           return { data: ref(mockDebt), refresh: vi.fn(), error: ref(null) }
     return { data: ref(null), refresh: vi.fn(), error: ref(null) }
   }),
   useRuntimeConfig: vi.fn(() => ({ public: {} })),
@@ -83,70 +87,94 @@ afterEach(() => {
   mountedWrappers = []
 })
 
-// ─── Section 1: Correct Cash Balance ─────────────────────────────────────────
-describe('Settings — Correct Cash Balance', () => {
-  it('renders the current cash balance', async () => {
+// ─── Section 1: Reconcile Balances ───────────────────────────────────────────
+describe('Settings — Reconcile Balances', () => {
+  it('renders a reconcile row per spendable account with its computed balance (card excluded from spendable list)', async () => {
     const w = mountSettings()
     await flushPromises()
-    // 12500 cents = RM125.00
+    expect(w.text()).toContain('Reconcile Balances')
+    // 12500 cents = RM125.00 (cash); each spendable account is listed by name.
     expect(w.text()).toContain('RM125.00')
     expect(w.text()).toContain('Cash Wallet')
+    expect(w.text()).toContain('Maybank')
+    expect(w.text()).toContain('EF Savings')
+    // Three spendable accounts → three account reconcile rows.
+    expect(w.find('[data-test="recon-account-1"]').exists()).toBe(true)
+    expect(w.find('[data-test="recon-account-2"]').exists()).toBe(true)
+    expect(w.find('[data-test="recon-account-3"]').exists()).toBe(true)
+    // The card is NOT in the spendable rows (it gets its own card row).
+    expect(w.find('[data-test="recon-account-4"]').exists()).toBe(false)
   })
 
-  it('submits POST /api/accounts/correct-cash with correct body shape', async () => {
-    const fetchMock = vi.fn(async () => ({ id: 1, adjustment_cents: 2500 }))
+  it('reconciles a spendable account → POST /api/accounts/correct-cash with account_id + target_cents', async () => {
+    const fetchMock = vi.fn(async () => ({ id: 1, adjustment_cents: 2500, computedCents: 12500, realCents: 15000, deltaCents: 2500 }))
     vi.stubGlobal('$fetch', fetchMock)
 
     const w = mountSettings()
     await flushPromises()
 
-    // Find the cash amount input and set it to 150.00
-    const input = w.find('#cash-amount')
+    const input = w.find('#recon-account-1-input')
     expect(input.exists()).toBe(true)
     await input.setValue('150.00')
-
-    // Submit
-    const form = w.find('form')
-    await form.trigger('submit')
+    await w.find('[data-test="recon-account-1"] form').trigger('submit')
     await flushPromises()
 
-    // Verify $fetch called with correct endpoint and body shape
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/accounts/correct-cash',
       expect.objectContaining({
         method: 'POST',
-        body: {
-          account_id: 1,       // primaryCashAccount.id from mockAccounts[0]
-          target_cents: 15000, // Math.round(150.00 * 100)
-        },
+        body: { account_id: 1, target_cents: 15000 },
       }),
     )
   })
 
-  it('converts RM to cents correctly (Math.round)', async () => {
-    const fetchMock = vi.fn(async () => ({ id: 2, adjustment_cents: 100 }))
+  it('shows the corrected drift after reconciling an account', async () => {
+    vi.stubGlobal('$fetch', vi.fn(async () => ({ id: 1, adjustment_cents: 2500, computedCents: 12500, realCents: 15000, deltaCents: 2500 })))
+    const w = mountSettings()
+    await flushPromises()
+    await w.find('#recon-account-1-input').setValue('150.00')
+    await w.find('[data-test="recon-account-1"] form').trigger('submit')
+    await flushPromises()
+    expect(w.text()).toContain('Adjusted by +RM25.00')
+  })
+
+  it('renders the credit-card reconcile row with the computed card balance', async () => {
+    const w = mountSettings()
+    await flushPromises()
+    expect(w.find('[data-test="recon-card"]').exists()).toBe(true)
+    // 740000 cents = RM7,400.00
+    expect(w.text()).toContain('RM7,400.00')
+  })
+
+  it('reconciles the card → POST /api/debts/card/reconcile with real_cents', async () => {
+    const fetchMock = vi.fn(async () => ({ id: 9, adjustment_cents: 15000, computedCents: 740000, realCents: 755000, deltaCents: 15000 }))
     vi.stubGlobal('$fetch', fetchMock)
 
     const w = mountSettings()
     await flushPromises()
-    await w.find('#cash-amount').setValue('99.99')
-    await w.find('form').trigger('submit')
+
+    await w.find('#recon-card-input').setValue('7550.00')
+    await w.find('[data-test="recon-card"] form').trigger('submit')
     await flushPromises()
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/accounts/correct-cash',
-      expect.objectContaining({ body: expect.objectContaining({ target_cents: 9999 }) }),
+      '/api/debts/card/reconcile',
+      expect.objectContaining({
+        method: 'POST',
+        body: { real_cents: 755000 },
+      }),
     )
   })
 
-  it('shows success message after submit', async () => {
-    vi.stubGlobal('$fetch', vi.fn(async () => ({ id: 3, adjustment_cents: 0 })))
+  it('shows the corrected drift + baseline note after reconciling the card', async () => {
+    vi.stubGlobal('$fetch', vi.fn(async () => ({ id: 9, adjustment_cents: 15000, computedCents: 740000, realCents: 755000, deltaCents: 15000 })))
     const w = mountSettings()
     await flushPromises()
-    await w.find('#cash-amount').setValue('125.00')
-    await w.find('form').trigger('submit')
+    await w.find('#recon-card-input').setValue('7550.00')
+    await w.find('[data-test="recon-card"] form').trigger('submit')
     await flushPromises()
-    expect(w.text()).toContain('Cash balance updated')
+    expect(w.text()).toContain('Adjusted by +RM150.00')
+    expect(w.text()).toContain('baseline unchanged')
   })
 })
 
@@ -212,10 +240,11 @@ describe('Settings — Emergency Fund Target', () => {
     await flushPromises()
 
     await w.find('#ef-custom').setValue('5000.00')
-    // Find the EF form (second form on page)
-    const forms = w.findAll('form')
-    // The EF custom form is the second form
-    await forms[1].trigger('submit')
+    // Submit the EF custom form specifically (it contains #ef-custom).
+    const efForm = w.find('#ef-custom').element.closest('form') as HTMLFormElement
+    await w.find('#ef-custom').setValue('5000.00')
+    const efFormWrapper = w.findAll('form').find(f => f.element === efForm)!
+    await efFormWrapper.trigger('submit')
     await flushPromises()
 
     expect(fetchMock).toHaveBeenCalledWith(

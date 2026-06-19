@@ -27,13 +27,24 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'account not found' })
   }
 
+  // Card balances are mirrored from the linked DEBT — reconciling a card means setting
+  // its real STATEMENT balance, which must adjust the debt leg (see /api/debts/card/reconcile),
+  // not the account leg. A positive account adjustment here would be wrong (cards store debt
+  // as a NEGATIVE balance). So this spendable-account path stays blocked for cards.
   if (acc.type === 'card') {
-    throw createError({ statusCode: 400, statusMessage: 'correct-cash is not supported for card accounts' })
+    throw createError({ statusCode: 400, statusMessage: 'correct-cash is not supported for card accounts (use /api/debts/card/reconcile)' })
   }
 
-  const delta = b.target_cents - acc.balance_cents
+  // Spendable real balance must be non-negative (you cannot hold negative cash/bank/ewallet/savings).
+  if (b.target_cents < 0) {
+    throw createError({ statusCode: 400, statusMessage: 'target_cents must be non-negative' })
+  }
+
+  const computedCents = acc.balance_cents
+  const realCents = b.target_cents
+  const delta = realCents - computedCents
   if (delta === 0) {
-    return { id: null, adjustment_cents: 0 }
+    return { id: null, adjustment_cents: 0, computedCents, realCents, deltaCents: 0 }
   }
 
   const { id } = postTransaction({
@@ -43,9 +54,9 @@ export default defineEventHandler(async (event) => {
     direction: delta > 0 ? 'income' : 'expense',
     category: 'adjustment',
     account_id: b.account_id,
-    note: `Cash correction to ${b.target_cents}`,
+    note: `Balance reconciled to ${realCents}`,
     source: 'adjustment',
   })
 
-  return { id, adjustment_cents: delta }
+  return { id, adjustment_cents: delta, computedCents, realCents, deltaCents: delta }
 })
