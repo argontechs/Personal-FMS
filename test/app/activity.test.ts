@@ -15,6 +15,7 @@ vi.mock('#app', () => ({
 
 // Import AFTER mocks (Vitest hoists vi.mock)
 import ActivityPage from '../../app/pages/activity.vue'
+import { useFetch } from '#app'
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 const makeTxn = (overrides: Partial<{
@@ -70,6 +71,11 @@ function mountActivity(fetchImpl?: (url: string, opts?: any) => any) {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  // activity.vue now `await useFetch('/api/accounts')` — after resetAllMocks the mock returns
+  // undefined, which would break the `const { data } = await useFetch(...)` destructure. Restore a
+  // safe default (no accounts → picker hidden) so existing tests are unaffected. Tests that need a
+  // populated picker override useFetch themselves.
+  vi.mocked(useFetch).mockResolvedValue({ data: { value: null }, refresh: vi.fn() } as any)
 })
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -700,6 +706,114 @@ describe('Activity page', () => {
       cancelBtn.click()
       await w.vm.$nextTick()
       expect(document.querySelector('[data-testid="edit-sheet"]')).toBeNull()
+    })
+
+    // ── 'Paid from' account picker (account_id edit) ──────────────────────────
+    // The sheet renders a spendable-account <select> pre-selected to the row's current
+    // account, filters out card accounts, and includes account_id in the PATCH body.
+    // Applies to both expense and income rows.
+    const SPENDABLE_ACCOUNTS = [
+      { id: 1, name: 'Cash', type: 'cash' },
+      { id: 2, name: 'Main Bank', type: 'bank' },
+      { id: 3, name: 'EF Savings', type: 'savings' },
+      { id: 9, name: 'Visa Card', type: 'card' }, // must be filtered OUT
+    ]
+
+    // Stub useFetch('/api/accounts') to return real accounts, then mount.
+    function mountWithAccounts(fetchImpl?: (url: string, opts?: any) => any) {
+      vi.mocked(useFetch).mockResolvedValue(
+        { data: { value: SPENDABLE_ACCOUNTS }, refresh: vi.fn() } as any,
+      )
+      return mountActivity(fetchImpl)
+    }
+
+    it('renders the account picker pre-selected to the row current account, card excluded', async () => {
+      const w = mountWithAccounts(async (url: string) => {
+        if (url.startsWith('/api/transactions')) {
+          return [makeTxn({ id: 1, account_id: 2, amount_cents: -1250, category: 'food', direction: 'expense' })]
+        }
+        return []
+      })
+      await flushPromises()
+
+      await w.find('.list-row__main').trigger('click')
+      await w.vm.$nextTick()
+
+      const select = document.querySelector('[data-test="edit-account"]') as HTMLSelectElement
+      expect(select).not.toBeNull()
+      // Pre-selected to the row's current account_id (2 = Main Bank).
+      expect(select.value).toBe('2')
+      // Card option filtered out → only the 3 spendable accounts are offered.
+      const optionValues = Array.from(select.querySelectorAll('option')).map(o => (o as HTMLOptionElement).value)
+      expect(optionValues).toEqual(['1', '2', '3'])
+      expect(optionValues).not.toContain('9')
+    })
+
+    it('includes the chosen account_id in the PATCH body (expense row)', async () => {
+      const patchResult = makeTxn({ id: 1, account_id: 3, amount_cents: -1250, category: 'food', direction: 'expense' })
+      const w = mountWithAccounts(async (url: string, opts?: any) => {
+        if (opts?.method === 'PATCH') return patchResult
+        if (url.startsWith('/api/transactions')) {
+          return [makeTxn({ id: 1, account_id: 2, amount_cents: -1250, category: 'food', direction: 'expense' })]
+        }
+        return []
+      })
+      await flushPromises()
+
+      await w.find('.list-row__main').trigger('click')
+      await w.vm.$nextTick()
+
+      // Change the funding account 2 → 3 (EF Savings).
+      const select = document.querySelector('[data-test="edit-account"]') as HTMLSelectElement
+      select.value = '3'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+      await w.vm.$nextTick()
+
+      ;(document.querySelector('.edit-sheet__save') as HTMLElement).click()
+      await flushPromises()
+
+      const calls = (globalThis.$fetch as any).mock.calls
+      const patchCall = calls.find((c: any[]) => c[1]?.method === 'PATCH')
+      expect(patchCall).toBeTruthy()
+      expect(patchCall[1].body.account_id).toBe(3)
+
+      document.querySelectorAll('.edit-overlay').forEach(el => el.remove())
+    })
+
+    it('the picker is available on income rows too and account_id is PATCHed', async () => {
+      const patchResult = makeTxn({ id: 50, account_id: 1, amount_cents: 200000, direction: 'income', category: 'income' })
+      const w = mountWithAccounts(async (url: string, opts?: any) => {
+        if (opts?.method === 'PATCH') return patchResult
+        if (url.startsWith('/api/transactions')) {
+          return [makeTxn({ id: 50, account_id: 2, amount_cents: 200000, direction: 'income', category: 'income', note: 'Salary' })]
+        }
+        return []
+      })
+      await flushPromises()
+
+      await w.find('.list-row__main').trigger('click')
+      await w.vm.$nextTick()
+
+      // Picker present + pre-selected to current account (2) even for income.
+      const select = document.querySelector('[data-test="edit-account"]') as HTMLSelectElement
+      expect(select).not.toBeNull()
+      expect(select.value).toBe('2')
+
+      // Move income to Cash (1) and save.
+      select.value = '1'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+      await w.vm.$nextTick()
+
+      ;(document.querySelector('.edit-sheet__save') as HTMLElement).click()
+      await flushPromises()
+
+      const calls = (globalThis.$fetch as any).mock.calls
+      const patchCall = calls.find((c: any[]) => c[1]?.method === 'PATCH')
+      expect(patchCall).toBeTruthy()
+      expect(patchCall[1].body.account_id).toBe(1)
+      expect(patchCall[1].body.direction).toBe('income')
+
+      document.querySelectorAll('.edit-overlay').forEach(el => el.remove())
     })
   })
 

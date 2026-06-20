@@ -390,6 +390,124 @@ describe('transactions API — PATCH edits + recomputes', () => {
 })
 
 // ---------------------------------------------------------------------------
+// PATCH — change the 'Paid from' account_id (re-anchored via recomputeBalances)
+// ---------------------------------------------------------------------------
+
+describe("transactions API — PATCH account_id ('Paid from' change)", () => {
+  let bankBId: number
+  let cardId: number
+
+  beforeAll(() => {
+    const h = createDb(TEST_DB)
+    try {
+      const now = Date.now()
+      const [b] = h.db.insert(accounts).values({
+        name: 'Bank B', type: 'bank' as any, balance_cents: 0,
+        created_at: now, updated_at: now,
+      }).returning().all()
+      bankBId = b.id as number
+      const [c] = h.db.insert(accounts).values({
+        name: 'Visa Card', type: 'card' as any, balance_cents: 0,
+        created_at: now, updated_at: now,
+      }).returning().all()
+      cardId = c.id as number
+    } finally {
+      h.sqlite.close()
+    }
+  })
+
+  it('PATCH account_id A→B re-anchors balances (A rises back, B drops) + persists the new account_id', async () => {
+    // Snapshot both balances before.
+    const before = await authFetch('/api/accounts')
+    const aBefore = (before as any[]).find((a: any) => a.id === bankId)!.balance_cents
+    const bBefore = (before as any[]).find((a: any) => a.id === bankBId)!.balance_cents
+
+    // Post an RM50 expense funded from bank A.
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'acct-move-1', date: '2026-06-18', amount_cents: -5000, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' },
+    })
+
+    // A is debited 5000; B unchanged.
+    const afterPost = await authFetch('/api/accounts')
+    expect((afterPost as any[]).find((a: any) => a.id === bankId)!.balance_cents - aBefore).toBe(-5000)
+    expect((afterPost as any[]).find((a: any) => a.id === bankBId)!.balance_cents - bBefore).toBe(0)
+
+    // Move the spend onto bank B.
+    const updated = await authFetch(`/api/transactions/${id}`, {
+      method: 'PATCH',
+      body: { account_id: bankBId },
+    })
+    expect(updated.account_id).toBe(bankBId) // row's account_id persists
+
+    // Re-anchored: A regains the 5000 (back to its before value), B now carries the −5000.
+    const afterPatch = await authFetch('/api/accounts')
+    const aAfter = (afterPatch as any[]).find((a: any) => a.id === bankId)!.balance_cents
+    const bAfter = (afterPatch as any[]).find((a: any) => a.id === bankBId)!.balance_cents
+    expect(aAfter).toBe(aBefore)        // old account rose back by the amount
+    expect(bAfter - bBefore).toBe(-5000) // new account dropped by the amount
+  })
+
+  it('PATCH applies account_id to an INCOME row too (income carries a funding account)', async () => {
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'acct-move-income', date: '2026-06-18', amount_cents: 120000, direction: 'income', category: 'income', account_id: bankId, source: 'manual' },
+    })
+    const updated = await authFetch(`/api/transactions/${id}`, {
+      method: 'PATCH',
+      body: { account_id: bankBId },
+    })
+    expect(updated.account_id).toBe(bankBId)
+    expect(updated.direction).toBe('income')
+  })
+
+  it('PATCH with a CARD account_id is rejected with 400 (cards are not spendable)', async () => {
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'acct-card-reject', date: '2026-06-18', amount_cents: -2000, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' },
+    })
+    await expect(authFetch(`/api/transactions/${id}`, { method: 'PATCH', body: { account_id: cardId } }))
+      .rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('PATCH with a NON-EXISTENT account_id is rejected with 400', async () => {
+    const { id } = await authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'acct-missing-reject', date: '2026-06-18', amount_cents: -2000, direction: 'expense', category: 'food', account_id: bankId, source: 'manual' },
+    })
+    await expect(authFetch(`/api/transactions/${id}`, { method: 'PATCH', body: { account_id: 987654 } }))
+      .rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('isEditableTxn guard still 403s a SYSTEM row even when a valid spendable account_id is sent', async () => {
+    // Insert a debt-payment system row (debt_id set) directly, then try to move its account.
+    const h = createDb(TEST_DB)
+    let sysId: number
+    let debtId: number
+    try {
+      const [d] = h.db.insert(debts).values({
+        name: 'Guard Card', type: 'revolving' as any, balance_cents: 0,
+        rate_type: 'apr' as any, created_at: Date.now(), updated_at: Date.now(),
+      } as any).returning().all()
+      debtId = d.id as number
+      // account_id=null → debt-only leg; does NOT touch any spendable account balance, so this
+      // raw system row can't perturb the DELETE-balance assertions later in the file.
+      const [row] = h.db.insert(transactions).values({
+        uuid: 'acct-guard-sys', date: '2026-06-18', amount_cents: -30000,
+        direction: 'expense', category: 'debt', account_id: null, counter_account_id: null,
+        debt_id: debtId, goal_id: null, note: null, is_estimate: false, source: 'manual',
+        recurring_item_id: null, created_at: Date.now(),
+      } as any).returning().all()
+      sysId = row.id as number
+    } finally {
+      h.sqlite.close()
+    }
+    await expect(authFetch(`/api/transactions/${sysId}`, { method: 'PATCH', body: { account_id: bankBId } }))
+      .rejects.toMatchObject({ statusCode: 403 })
+  })
+})
+
+// ---------------------------------------------------------------------------
 // DELETE — removes a row and recomputes balances
 // ---------------------------------------------------------------------------
 

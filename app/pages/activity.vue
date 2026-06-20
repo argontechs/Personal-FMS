@@ -4,6 +4,7 @@
 -->
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useFetch } from '#app'
 import CategoryIcon from '~/components/CategoryIcon.vue'
 import { SPEND_CATEGORIES } from '../../shared/categories'
 import { isEditableTxn } from '../../shared/txnEditable'
@@ -25,6 +26,21 @@ interface Transaction {
   source: string
   is_estimate: boolean
 }
+
+// ── Spendable accounts (for the 'Paid from' edit picker) ──────────────────
+// The edit sheet lets the user correct which account a spend/income was funded from.
+// Only SPENDABLE types are offered (a card carries outstanding debt, not spendable cash).
+interface Account {
+  id: number
+  name: string
+  type: string
+}
+const SPENDABLE_TYPES = new Set(['cash', 'bank', 'ewallet', 'savings'])
+const { data: accountsData } = await useFetch<Account[]>('/api/accounts')
+const spendableAccounts = computed<Account[]>(() => {
+  const arr = Array.isArray(accountsData.value) ? accountsData.value : []
+  return arr.filter(a => SPENDABLE_TYPES.has(a.type))
+})
 
 // ── System categories to hide ─────────────────────────────────────────────
 const SYSTEM_CATS = new Set(['opening-balance', 'adjustment', 'transfer'])
@@ -283,6 +299,7 @@ const editAmountRm = ref('')
 const editCategory = ref('')
 const editNote = ref('')
 const editDate = ref('')
+const editAccountId = ref<number | null>(null) // 'Paid from' account (spendable only)
 const editErrors = ref<Record<string, string>>({})
 const editSaving = ref(false)
 
@@ -303,6 +320,8 @@ function openEdit(txn: Transaction) {
   editCategory.value = txn.category
   editNote.value = txn.note ?? ''
   editDate.value = txn.date
+  // Pre-select the row's CURRENT funding account so the picker opens on the truth.
+  editAccountId.value = txn.account_id
   editErrors.value = {}
   editSheet.value = true
   // Focus handled by useFocusTrap (initialFocusRef: editAmountRef).
@@ -354,6 +373,9 @@ async function saveEdit() {
         category,
         note: editNote.value || null,
         date: editDate.value,
+        // 'Paid from' account — applies to BOTH expense and income rows (both carry a
+        // funding account). recomputeBalances() re-anchors old→new on the server.
+        ...(editAccountId.value != null ? { account_id: editAccountId.value } : {}),
       },
     })
     // Update in-place
@@ -681,6 +703,24 @@ async function saveEdit() {
               aria-describedby="edit-date-err"
             />
             <span v-if="editErrors.date" id="edit-date-err" class="edit-sheet__error" role="alert">{{ editErrors.date }}</span>
+          </div>
+
+          <!-- Paid from: spendable-account picker (applies to expense AND income rows) -->
+          <div v-if="spendableAccounts.length > 0" class="edit-sheet__field">
+            <label class="edit-sheet__label" for="edit-account">Paid from</label>
+            <select
+              id="edit-account"
+              class="input edit-sheet__select"
+              data-test="edit-account"
+              :value="editAccountId"
+              @change="editAccountId = +($event.target as HTMLSelectElement).value"
+            >
+              <option
+                v-for="acc in spendableAccounts"
+                :key="acc.id"
+                :value="acc.id"
+              >{{ acc.name }}</option>
+            </select>
           </div>
 
           <!-- Save error -->
@@ -1168,6 +1208,16 @@ async function saveEdit() {
 .edit-sheet__chip:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+.edit-sheet__select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  padding-right: 40px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
 }
 
 .edit-sheet__income-badge {

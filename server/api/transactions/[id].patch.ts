@@ -1,7 +1,7 @@
 // server/api/transactions/[id].patch.ts
 import { requireSession } from '../../utils/requireSession'
 import { db } from '../../db/index'
-import { transactions } from '../../db/schema'
+import { transactions, accounts } from '../../db/schema'
 import { recomputeBalances } from '../../utils/post'
 import { withinAmountCeiling } from '../../utils/money'
 import { isEditableTxn } from '../../../shared/txnEditable'
@@ -11,6 +11,10 @@ const VALID_CATEGORIES = ['food', 'transport', 'car', 'fuel', 'groceries', 'shop
 // transfer rows exist in the ledger but are not editable through this sheet; direction must be a
 // known enum value. We accept income/expense/transfer to preserve whatever the row already was.
 const VALID_DIRECTIONS = ['income', 'expense', 'transfer'] as const
+// A user transaction's funding/source account must be SPENDABLE — never a card (cards carry
+// outstanding debt as a negative balance, with their own interest/payment legs). Moving a plain
+// spend onto a card would corrupt the card-mirror invariant in recomputeBalances.
+const SPENDABLE_ACCOUNT_TYPES = new Set(['cash', 'bank', 'ewallet', 'savings'])
 
 export default defineEventHandler(async (event) => {
   requireSession(event)
@@ -51,6 +55,22 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: 'date must be YYYY-MM-DD' })
     }
     patch.date = body.date
+  }
+  // 'Paid from' account change: must reference an EXISTING account whose type is spendable.
+  // Reject a non-existent id or a card account with 400 — recomputeBalances() will then re-anchor
+  // balances (old account regains the amount, the new account loses it) automatically.
+  if (body.account_id !== undefined) {
+    if (typeof body.account_id !== 'number' || !Number.isInteger(body.account_id)) {
+      throw createError({ statusCode: 400, statusMessage: 'account_id must be an integer' })
+    }
+    const acct = db.select({ type: accounts.type }).from(accounts).where(eq(accounts.id, body.account_id)).get()
+    if (!acct) {
+      throw createError({ statusCode: 400, statusMessage: 'account_id does not reference an existing account' })
+    }
+    if (!SPENDABLE_ACCOUNT_TYPES.has(acct.type)) {
+      throw createError({ statusCode: 400, statusMessage: 'account_id must be a spendable (cash/bank/ewallet/savings) account' })
+    }
+    patch.account_id = body.account_id
   }
 
   if (Object.keys(patch).length === 0) {
