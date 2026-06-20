@@ -82,6 +82,7 @@ export default defineEventHandler(async (event) => {
     amount_cents: transactions.amount_cents,
     direction: transactions.direction,
     category: transactions.category,
+    account_id: transactions.account_id,
     debt_id: transactions.debt_id,
     source: transactions.source,
   }).from(transactions).where(eq(transactions.id, id)).get()
@@ -94,6 +95,19 @@ export default defineEventHandler(async (event) => {
   // re-saving them through the income/expense sheet would corrupt recomputeBalances.
   if (!isEditableTxn(existing)) {
     throw createError({ statusCode: 403, statusMessage: 'this transaction is system-managed and cannot be edited' })
+  }
+
+  // Belt-and-braces for an account_id change: the EXISTING row's source account must itself be
+  // spendable, so the re-anchor (old account regains the amount, new loses it) is provably
+  // symmetric and never moves money OFF a debt-mirrored card. (POST already forbids creating a
+  // card-funded user row, so this should be unreachable — assert it locally regardless.)
+  if (patch.account_id !== undefined) {
+    const curAcct = existing.account_id != null
+      ? db.select({ type: accounts.type }).from(accounts).where(eq(accounts.id, existing.account_id)).get()
+      : null
+    if (!curAcct || !SPENDABLE_ACCOUNT_TYPES.has(curAcct.type)) {
+      throw createError({ statusCode: 400, statusMessage: 'only a spendable-funded transaction can have its account changed' })
+    }
   }
 
   // Canonical sign invariant: income amount_cents must be >= 0, expense must be <= 0.

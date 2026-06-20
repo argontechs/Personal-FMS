@@ -20,6 +20,7 @@ process.env.NUXT_SESSION_PASSWORD = process.env.NUXT_SESSION_PASSWORD || 'txn-te
 // ---------------------------------------------------------------------------
 
 let bankId: number
+let cardId: number
 let handle: ReturnType<typeof createDb>
 let sessionCookie: string
 
@@ -43,6 +44,15 @@ beforeAll(async () => {
     updated_at: now,
   }).returning().all()
   bankId = b.id as number
+  // A card account — a user transaction must NEVER be fundable from it (debt-mirrored).
+  const [c] = handle.db.insert(accounts).values({
+    name: 'Credit Card',
+    type: 'card' as any,
+    balance_cents: 0,
+    created_at: now,
+    updated_at: now,
+  }).returning().all()
+  cardId = c.id as number
   handle.sqlite.close()
 })
 
@@ -101,6 +111,22 @@ describe('transactions API — auth gating', () => {
   it('DELETE /api/transactions/1 → 401 without session', async () => {
     await expect($fetch('/api/transactions/1', { method: 'DELETE' }))
       .rejects.toMatchObject({ statusCode: 401 })
+  })
+})
+
+describe('transactions API — source account must be spendable (no card-funded user rows)', () => {
+  it('POST rejects a CARD source account with 400', async () => {
+    await expect(authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'card-src-1', date: '2026-06-20', amount_cents: -5000, direction: 'expense', category: 'food', account_id: cardId, source: 'manual' },
+    })).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('POST rejects a non-existent source account with 400', async () => {
+    await expect(authFetch('/api/transactions', {
+      method: 'POST',
+      body: { uuid: 'card-src-2', date: '2026-06-20', amount_cents: -5000, direction: 'expense', category: 'food', account_id: 999999, source: 'manual' },
+    })).rejects.toMatchObject({ statusCode: 400 })
   })
 })
 

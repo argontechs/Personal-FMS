@@ -2,13 +2,19 @@
 import { requireSession } from '../../utils/requireSession'
 import { postTransaction } from '../../utils/post'
 import { db } from '../../db/index'
-import { transactions } from '../../db/schema'
+import { transactions, accounts } from '../../db/schema'
 import { withinAmountCeiling } from '../../utils/money'
 import { eq } from 'drizzle-orm'
 
 const VALID_CATEGORIES = ['food', 'transport', 'car', 'fuel', 'groceries', 'shopping', 'bills', 'debt', 'income', 'savings', 'interest', 'adjustment', 'other'] as const
 const VALID_DIRECTIONS = ['income', 'expense', 'transfer'] as const
 const VALID_SOURCES = ['auto', 'manual', 'adjustment'] as const
+// A user transaction's funding/source account must be SPENDABLE — never a card. Cards carry
+// outstanding debt as a negative mirror balance with their own interest/payment legs; a plain
+// spend posted onto a card would create a phantom amount that destroys money when later edited
+// onto a real account (recomputeBalances skips debt-linked card accounts). System rows (interest,
+// debt payments, adjustments) are posted server-side via postTransaction, NOT through this endpoint.
+const SPENDABLE_ACCOUNT_TYPES = new Set(['cash', 'bank', 'ewallet', 'savings'])
 
 export default defineEventHandler(async (event) => {
   requireSession(event)
@@ -28,6 +34,15 @@ export default defineEventHandler(async (event) => {
   }
   if (!body?.account_id || typeof body.account_id !== 'number') {
     throw createError({ statusCode: 400, statusMessage: 'account_id required' })
+  }
+  // Source account must exist and be spendable (never a card) — closes the money-destruction
+  // path where a card-funded editable expense is later moved onto a real account.
+  const srcAcct = db.select({ type: accounts.type }).from(accounts).where(eq(accounts.id, body.account_id)).get()
+  if (!srcAcct) {
+    throw createError({ statusCode: 400, statusMessage: 'account_id does not reference an existing account' })
+  }
+  if (!SPENDABLE_ACCOUNT_TYPES.has(srcAcct.type)) {
+    throw createError({ statusCode: 400, statusMessage: 'account_id must be a spendable (cash/bank/ewallet/savings) account' })
   }
 
   const category = body.category ?? 'other'
